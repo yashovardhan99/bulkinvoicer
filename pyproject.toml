@@ -1,0 +1,92 @@
+[project]
+name = "bulkinvoicer"
+description = "A simple python script to quickly create bulk invoices."
+dynamic = ["version"]
+dependencies = [
+    "polars[calamine] >= 1.29.0, < 2.0.0",
+    "qrcode >= 8.2, < 9.0",
+    "fpdf2 >= 2.8.3, < 3.0.0",
+]
+requires-python = ">=3.9"
+authors = [
+    { name = "Yashovardhan Dhanania", email = "yashovardhandhanania@gmail.com" },
+]
+maintainers = [
+    { name = "Yashovardhan Dhanania", email = "yashovardhandhanania@gmail.com" },
+]
+# readme = "README.md"
+license = "MIT"
+# license-files = ["LICENSE"]
+keywords = ["finance", "invoice", "bill", "pdf"]
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+
+[project.urls]
+
+[dependency-groups]
+testing = ["pytest >= 8.3.5, < 9.0.0", "coverage[toml] >= 7.8.0, < 8.0.0"]
+linting = ["ruff >= 0.11.9, < 0.12.0", "mypy >= 1.15.0, < 2.0.0"]
+stubs = ["types-qrcode", "types-fpdf2"]
+docs = []
+dev = [
+    { include-group = "testing" },
+    { include-group = "linting" },
+    { include-group = "stubs" },
+    { include-group = "docs" },
+]
+
+[tool.ruff.lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "D",  # Docstrings
+    "B",  # Bugbear
+    "Q",  # Quotes
+    "UP", # PyUpgrade
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.coverage.report]
+# Regexes for lines to exclude from consideration
+exclude_also = [
+    # Don't complain about missing debug-only code:
+    "def __repr__",
+    "if logger\\.isEnabledFor\\(logging\\.DEBUG\\)",
+
+    # Don't complain if tests don't hit defensive assertion code:
+    "raise AssertionError",
+    "raise NotImplementedError",
+
+    # Don't complain if non-runnable code isn't run:
+    "if 0:",
+    "if __name__ == .__main__.:",
+
+    # Don't complain about abstract methods, they aren't run:
+    "@(abc\\.)?abstractmethod",
+
+    # Don't complaint about type-checking code, it isn't run:
+    "if TYPE_CHECKING",
+]
