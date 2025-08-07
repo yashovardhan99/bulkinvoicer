@@ -1,21 +1,23 @@
 """Driver module for BulkInvoicer."""
 
+from collections.abc import Mapping
+import logging.config
 import tomllib
 import logging
 from typing import Any
+from collections.abc import Sequence
+from fpdf import FontFace
 import polars as pl
+from bulkinvoicer.utils import PDF
 
 # Configure logging
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 
-def load_config() -> dict[str, Any]:
+def load_config() -> Mapping[str, Any]:
     """Load configuration from a TOML file."""
     try:
-        with open("config.toml", "rb") as f:
+        with open("sample.config.toml", "rb") as f:
             config = tomllib.load(f)
             logger.info("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
@@ -29,14 +31,145 @@ def load_config() -> dict[str, Any]:
         raise
 
 
-def generate_invoice(config: dict[str, Any]) -> None:
-    """Generate an invoice based on the provided configuration."""
-    # Placeholder for invoice generation logic
+def generate_invoice(
+    pdf: PDF, config: Mapping[str, Any], invoice_data: Mapping[str, Any]
+) -> None:
+    """Generate an invoice PDF using the provided configuration."""
     logger.info("Generating invoice with the provided configuration.")
-    # Here you would implement the logic to create an invoice using the config
-    # For now, we just log the action
+    pdf.add_page(format="A4")
+
+    pdf.print_invoice_header(invoice_data)
+
+    pdf.set_font("times", size=10)
+
+    # Invoice Table
+
+    header = (
+        "Description".upper(),
+        "Unit Price".upper(),
+        "Qty".upper(),
+        "Total".upper(),
+    )
+
+    descriptions: Sequence[str] = invoice_data.get("description", [])
+    unit_prices: Sequence = invoice_data.get("unit", [])
+    quantities: Sequence = invoice_data.get("qty", [])
+    totals: Sequence = invoice_data.get("amount", [])
+
+    invoice_items = zip(descriptions, unit_prices, quantities, totals)
+
+    headings_style = FontFace(emphasis="BOLD", fill_color=(248, 230, 229))
+    with pdf.table(
+        text_align=("LEFT", "CENTER", "CENTER", "RIGHT"),
+        borders_layout="NONE",
+        padding=2,
+        headings_style=headings_style,
+    ) as table:
+        header_row = table.row()
+        for item in header:
+            header_row.cell(item)
+
+        for invoice_row in invoice_items:
+            row = table.row()
+            for item in invoice_row:
+                row.cell(str(item))
+
+        table.row()
+
+        if config.get("invoice", {}).get("show-subtotal", True):
+            subtotal_row = table.row(style=FontFace(emphasis="BOLD"))
+            subtotal_row.cell("Subtotal", colspan=3, align="LEFT")
+            subtotal_row.cell(str(invoice_data.get("subtotal", "0.00")))
+
+        if config.get("invoice", {}).get("discount-column", False):
+            discount_row = table.row()
+            discount_row.cell("Discount", colspan=3, align="RIGHT")
+            discount_row.cell(str(invoice_data.get("discount", "0.00")))
+
+        for tax_column in config.get("invoice", {}).get("tax-columns", []):
+            tax_row = table.row()
+            tax_row.cell(tax_column.upper(), colspan=3, align="RIGHT", padding=(0, 2))
+            tax_row.cell(str(invoice_data.get(tax_column, "0.00")), padding=(0, 2))
+
+        total_row = table.row(style=headings_style)
+        total_row.cell("Total".upper(), colspan=3, align="RIGHT")
+        total_row.cell(str(invoice_data.get("total", "0.00")))
+
+    pdf.ln(20)  # Line break for spacing
+
+    section_start_y = pdf.get_y()
+    pdf.print_invoice_payment_details(invoice_data)
+    section_end_y = pdf.get_y()
+
+    pdf.set_y(section_start_y)
+    pdf.print_signature()
+
+    pdf.set_y(max(pdf.get_y(), section_end_y))
+
+    for i in range(20, 1, -1):
+        if not pdf.will_page_break(i):
+            pdf.ln(i)
+            break
+
+
+def generate_receipt(
+    pdf: PDF, config: Mapping[str, Any], receipt_data: Mapping[str, Any]
+) -> None:
+    """Generate a receipt PDF using the provided configuration."""
+    logger.info("Generating receipt with the provided configuration.")
+    pdf.add_page(format="A4")
+
+    pdf.print_receipt_header(receipt_data)
+
+    pdf.set_font("times", size=10)
+
+    headings_style = FontFace(emphasis="BOLD", fill_color=(248, 230, 229))
+    with pdf.table(
+        text_align=("LEFT", "RIGHT"),
+        borders_layout="NONE",
+        padding=2,
+        headings_style=headings_style,
+    ) as table:
+        header_row = table.row()
+        header_row.cell("Description".upper())
+        header_row.cell("Amount".upper())
+
+        row = table.row()
+        row.cell("Payment Received")
+        row.cell(str(receipt_data.get("amount", "0.00")))
+
+        total_row = table.row(style=headings_style)
+        total_row.cell("Total".upper(), align="RIGHT")
+        total_row.cell(str(receipt_data.get("amount", "0.00")))
+
+    pdf.ln(20)
+
+    section_start_y = pdf.get_y()
+    pdf.print_receipt_payment_details(receipt_data)
+    section_end_y = pdf.get_y()
+    pdf.set_y(section_start_y)
+    pdf.print_signature()
+
+    pdf.set_y(max(pdf.get_y(), section_end_y))
+
+    # receipt_number = receipt_data.get("number", "")
+    # pdf.code39(f"*{receipt_number}*", x=pdf.l_margin, y=pdf.t_margin + 20, w=0.5, h=3)
+
+    for i in range(20, 1, -1):
+        if not pdf.will_page_break(i):
+            pdf.ln(i)
+            break
+
+
+def generate(config: Mapping[str, Any]) -> None:
+    """Generate invoices and receipts based on provided configuration."""
+    logger.info("Generating invoices with the provided configuration.")
+    invoice_config = config.get("invoice", {})
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Invoice configuration: {config['invoice']}")
+        logger.debug(f"Invoice configuration: {invoice_config}")
+
+    date_format = invoice_config.get("date-format", "iso")
+    decimals = invoice_config.get("decimals", 2)
 
     df_invoice_data = pl.read_excel(
         config["excel"]["filepath"],
@@ -60,6 +193,128 @@ def generate_invoice(config: dict[str, Any]) -> None:
         logger.debug(f"Invoice DataFrame: {df_invoice_data}")
         logger.debug(f"Clients DataFrame: {df_clients}")
 
+    df_invoices = (
+        df_invoice_data.with_columns(
+            pl.col("unit").cast(pl.Decimal(None, decimals)),
+            pl.col("qty").cast(pl.UInt32()),
+            amount=(pl.col("unit") * pl.col("qty")).cast(pl.Decimal(None, decimals)),
+        )
+        .group_by("number")
+        .agg(
+            pl.max("date"),
+            pl.max("due date"),
+            pl.first("client"),
+            pl.sum("amount").alias("subtotal"),
+            (
+                pl.sum(invoice_config["discount-column"])
+                if "discount-column" in invoice_config
+                else pl.lit(None)
+            )
+            .cast(pl.Decimal(None, decimals))
+            .alias("discount"),
+            pl.sum(*invoice_config.get("tax-columns", [])).cast(
+                pl.Decimal(None, decimals)
+            )
+            if invoice_config.get("tax-columns", False)
+            else pl.lit(None),
+            pl.col("description", "unit", "qty", "amount"),
+        )
+        .join(
+            df_clients,
+            left_on="client",
+            right_on="name",
+            how="left",
+        )
+        .sort("number")
+        .select(
+            "number",
+            pl.col("date").dt.to_string(date_format).alias("date"),
+            pl.col("due date").dt.to_string(date_format).alias("due date"),
+            pl.coalesce("client", "display name").alias("client"),
+            pl.col("address").alias("client_address"),
+            pl.col("phone").alias("client_phone"),
+            pl.col("email").alias("client_email"),
+            pl.col("description"),
+            pl.col("unit"),
+            pl.col("qty"),
+            pl.col("amount"),
+            pl.col("subtotal"),
+            pl.col("discount"),
+            pl.col(*invoice_config.get("tax-columns", []))
+            if invoice_config.get("tax-columns", False)
+            else pl.lit(None).alias("tax-ignored"),
+            (
+                pl.sum_horizontal(
+                    "subtotal",
+                    pl.col("discount").neg(),
+                    *invoice_config.get("tax-columns", []),
+                )
+            ).alias("total"),
+        )
+    )
+
+    logger.info("Invoices DataFrame prepared.")
+
+    logger.info("Creating PDF document for invoices.")
+
+    pdf = PDF(config=config)
+    pdf.set_title("Sample Invoice Set")
+
+    for invoice_data in df_invoices.to_dicts():
+        generate_invoice(pdf, config, invoice_data)
+
+    logger.info("Invoices generated successfully.")
+
+    logger.info("Reading receipt configuration.")
+    receipt_config = config.get("receipt", {})
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Receipt configuration: {receipt_config}")
+
+    date_format = receipt_config.get("date-format", "iso")
+    decimals = receipt_config.get("decimals", 2)
+
+    logger.info("Starting Receipt generation.")
+    df_receipt_data = pl.read_excel(
+        config["excel"]["filepath"],
+        sheet_name="receipts",
+    )
+
+    logger.info("Data loaded from Receipts Excel file.")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Receipt DataFrame: {df_receipt_data}")
+
+    df_receipts = (
+        df_receipt_data.with_columns(
+            pl.col("amount").cast(pl.Decimal(None, decimals)),
+        )
+        .join(
+            df_clients,
+            left_on="client",
+            right_on="name",
+            how="left",
+        )
+        .sort("number")
+        .select(
+            "number",
+            pl.col("date").dt.to_string(date_format).alias("date"),
+            pl.coalesce("client", "display name").alias("client"),
+            pl.col("address").alias("client_address"),
+            pl.col("phone").alias("client_phone"),
+            pl.col("email").alias("client_email"),
+            pl.col("amount").cast(pl.Decimal(None, decimals)),
+            pl.col("payment mode"),
+        )
+    )
+
+    logger.info("Receipts DataFrame prepared.")
+
+    for receipt_data in df_receipts.to_dicts():
+        generate_receipt(pdf, config, receipt_data)
+
+    logger.info("Receipts generated successfully.")
+
+    pdf.output("sample.pdf")
+
 
 def main() -> None:
     """Main function to run the BulkInvoicer."""
@@ -73,11 +328,12 @@ def main() -> None:
         else:
             raise ValueError("Excel file path is not specified in the configuration.")
 
-        generate_invoice(config)
+        generate(config)
     except Exception as e:
         logger.critical(f"An error occurred: {e}")
         raise
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.WARNING)
     main()

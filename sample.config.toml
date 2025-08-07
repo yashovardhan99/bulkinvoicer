@@ -4,25 +4,17 @@ tagline = "Graphic Designer"
 
 [invoice]
 filename = "{INVOICE_NUMBER}.pdf"
-
-[invoice.details]
 decimals = 2
-include-subtotal = true
-include-tax = true
-include-discount = true
-
-[invoice.format]
+show-subtotal = true
 date-format = "%d %b %Y"
+tax-columns = ["CGST", "SGST", "IGST"]
+discount-column = "discount"
 
 [receipt]
 filename = "{RECEIPT_NUMBER}.pdf"
-
-[receipt.details]
 decimals = 2
 auto-match-invoices = true
 allow-advance-payments = true
-
-[receipt.format]
 date-format = "%d %b %Y"
 
 [signature]
@@ -42,12 +34,13 @@ currency = "INR"
 
 [footer]
 text = [
-    "All amounts are in INR.",
-    "This is a computer-generated document and does not require a signature.",
+    "GSTIN: 123456789",
+    "__All amounts are in INR.__",
 ]
 
 [excel]
 filepath = "sample.xlsx"
 
-tax-columns = ["CGST", "SGST", "IGST"]
-discount-column = "discount"
+[output]
+directory = "output"
+merge-files = "client-both" # Options: "client-both", "client", "all", "type", "none"
