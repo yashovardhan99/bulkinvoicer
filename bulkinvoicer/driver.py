@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 import logging.config
+from pathlib import Path
 import tomllib
 import logging
 from typing import Any
@@ -172,10 +173,19 @@ def generate_receipt(
 
 def generate(config: Mapping[str, Any]) -> None:
     """Generate invoices and receipts based on provided configuration."""
-    logger.info("Generating invoices with the provided configuration.")
+    logger.info("Generating invoices and receipts with the provided configuration.")
     invoice_config = config.get("invoice", {})
+    receipt_config = config.get("receipt", {})
+
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Invoice configuration: {invoice_config}")
+        logger.debug(f"Receipt configuration: {receipt_config}")
+
+    output_formats: Mapping[str, Any] = config.get("output", {})
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Output formats: {output_formats}")
+
+    logger.info("Reading data from Excel files.")
 
     date_format = invoice_config.get("date-format", "iso")
     decimals = invoice_config.get("decimals", 2)
@@ -183,6 +193,11 @@ def generate(config: Mapping[str, Any]) -> None:
     df_invoice_data = pl.read_excel(
         config["excel"]["filepath"],
         sheet_name="invoices",
+    )
+
+    df_receipt_data = pl.read_excel(
+        config["excel"]["filepath"],
+        sheet_name="receipts",
     )
 
     df_clients = pl.read_excel(
@@ -201,7 +216,9 @@ def generate(config: Mapping[str, Any]) -> None:
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Invoice DataFrame: {df_invoice_data}")
         logger.debug(f"Clients DataFrame: {df_clients}")
+        logger.debug(f"Receipt DataFrame: {df_receipt_data}")
 
+    logger.info("Starting data preperation.")
     df_invoices = (
         df_invoice_data.with_columns(
             pl.col("unit").cast(pl.Decimal(None, decimals)),
@@ -264,33 +281,11 @@ def generate(config: Mapping[str, Any]) -> None:
 
     logger.info("Invoices DataFrame prepared.")
 
-    logger.info("Creating PDF document for invoices.")
-
-    pdf = PDF(config=config)
-    pdf.set_title("Sample Invoice Set")
-
-    for invoice_data in df_invoices.to_dicts():
-        generate_invoice(pdf, config, invoice_data)
-
-    logger.info("Invoices generated successfully.")
-
-    logger.info("Reading receipt configuration.")
-    receipt_config = config.get("receipt", {})
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Receipt configuration: {receipt_config}")
+        logger.debug(f"Prepared Invoices DataFrame: {df_invoices}")
 
     date_format = receipt_config.get("date-format", "iso")
     decimals = receipt_config.get("decimals", 2)
-
-    logger.info("Starting Receipt generation.")
-    df_receipt_data = pl.read_excel(
-        config["excel"]["filepath"],
-        sheet_name="receipts",
-    )
-
-    logger.info("Data loaded from Receipts Excel file.")
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Receipt DataFrame: {df_receipt_data}")
 
     df_receipts = (
         df_receipt_data.with_columns(
@@ -318,6 +313,11 @@ def generate(config: Mapping[str, Any]) -> None:
 
     logger.info("Receipts DataFrame prepared.")
 
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Prepared Receipts DataFrame: {df_receipts}")
+
+    logger.info("Matching payments to invoices.")
+
     matched: list[dict[str, Any]] = []
 
     for client in df_receipts.select("client").unique().iter_rows():
@@ -336,12 +336,98 @@ def generate(config: Mapping[str, Any]) -> None:
         df_matched, left_on="number", right_on="receipt", how="inner"
     )
 
-    for receipt_data in df_receipts.to_dicts():
-        generate_receipt(pdf, config, receipt_data)
+    logger.info("Payments matched to invoices.")
 
-    logger.info("Receipts generated successfully.")
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Matched Receipts DataFrame: {df_receipts}")
 
-    pdf.output("sample.pdf")
+    logger.info("Starting PDF generation.")
+
+    for key, value in output_formats.items():
+        logger.info(f"Starting with output format: {key}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Output format {key} configuration: {value}")
+
+        path: str = value.get("path", "")
+
+        if not path:
+            logger.error(f"No path specified for output format: {key}")
+            raise ValueError(f"Output format '{key}' requires a 'path' configuration.")
+
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+        output_type = value.get("type")
+        if not output_type:
+            logger.error(f"No type specified for output format: {key}")
+            raise ValueError(f"Output format '{key}' requires a 'type' configuration.")
+
+        if output_type == "combined":
+            logger.info("Generating combined PDF for all invoices and receipts.")
+            pdf = PDF(config=config)
+            pdf.set_title(key)
+
+            for invoice_data in df_invoices.to_dicts():
+                generate_invoice(pdf, config, invoice_data)
+
+            logger.info("Invoices generated successfully.")
+
+            for receipt_data in df_receipts.to_dicts():
+                generate_receipt(pdf, config, receipt_data)
+
+            logger.info("Receipts generated successfully.")
+
+            pdf.output(path)
+
+        elif output_type == "individual":
+            logger.info("Generating individual PDFs for each invoice and receipt.")
+
+            for invoice_data in df_invoices.to_dicts():
+                pdf = PDF(config=config)
+                pdf.set_title(f"{key} Invoice {invoice_data['number']}")
+                generate_invoice(pdf, config, invoice_data)
+                pdf.output(path.format(NUMBER=invoice_data["number"]))
+
+            logger.info("Individual invoices generated successfully.")
+
+            for receipt_data in df_receipts.to_dicts():
+                pdf = PDF(config=config)
+                pdf.set_title(f"{key} Receipt {receipt_data['number']}")
+                generate_receipt(pdf, config, receipt_data)
+                pdf.output(path.format(NUMBER=receipt_data["number"]))
+
+            logger.info("Individual receipts generated successfully.")
+
+        elif output_type == "clients":
+            logger.info("Generating PDFs for each client.")
+            clients = df_invoices.select("client").unique().iter_rows()
+            for client in clients:
+                client_name = client[0]
+                logger.info(f"Generating PDF for client: {client_name}")
+                pdf = PDF(config=config)
+                pdf.set_title(f"{key} {client_name}")
+
+                client_invoices = df_invoices.filter(pl.col("client") == client_name)
+                for invoice_data in client_invoices.to_dicts():
+                    generate_invoice(pdf, config, invoice_data)
+
+                logger.info(
+                    f"Invoices for client {client_name} generated successfully."
+                )
+
+                client_receipts = df_receipts.filter(pl.col("client") == client_name)
+                for receipt_data in client_receipts.to_dicts():
+                    generate_receipt(pdf, config, receipt_data)
+
+                logger.info(
+                    f"Receipts for client {client_name} generated successfully."
+                )
+
+                pdf.output(path.format(CLIENT=client_name))
+        else:
+            logger.error(f"Unknown output type: {output_type}")
+            raise ValueError(
+                f"Output format '{key}' has an unknown 'type': {output_type}"
+            )
 
 
 def main() -> None:

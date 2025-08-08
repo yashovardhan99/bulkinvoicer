@@ -1,6 +1,5 @@
 """Common utility functions for the Bulkinvoicer application."""
 
-from decimal import Decimal
 import logging
 from typing import Any
 from collections.abc import Mapping, Sequence

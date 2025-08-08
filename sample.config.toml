@@ -3,7 +3,6 @@ name = "Jane Doe"
 tagline = "Graphic Designer"
 
 [invoice]
-filename = "{INVOICE_NUMBER}.pdf"
 decimals = 2
 show-subtotal = true
 date-format = "%d %b %Y"
@@ -11,13 +10,12 @@ tax-columns = ["CGST", "SGST", "IGST"]
 discount-column = "discount"
 
 [receipt]
-filename = "{RECEIPT_NUMBER}.pdf"
 decimals = 2
 date-format = "%d %b %Y"
 
 [signature]
 prefix = "Thank You!"
-text = "Best regards,\nJane Doe"
+# text = "Best regards,\nJane Doe"
 
 [payment]
 payment-methods-text = "Pay via UPI/Cash"
@@ -31,14 +29,19 @@ transaction-note = "Payment for invoice {INVOICE_NUMBER}"
 currency = "INR"
 
 [footer]
-text = [
-    "GSTIN: 123456789",
-    "__All amounts are in INR.__",
-]
+text = ["GSTIN: 123456789", "__All amounts are in INR.__", "__This is a computer-generated document and does not require a signature.__"]
 
 [excel]
 filepath = "sample.xlsx"
 
-[output]
-directory = "output"
-merge-files = "client-both" # Options: "client-both", "client", "all", "type", "none"
+[output.combined]
+path = "output/combined.pdf"
+type = "combined" # combined, individual, or clients
+
+[output.individual]
+path = "output/individuals/{NUMBER}.pdf"
+type = "individual"
+
+[output.clients]
+type = "clients"
+path = "output/clients/{CLIENT}.pdf"
