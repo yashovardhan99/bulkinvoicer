@@ -1,6 +1,7 @@
 """Driver module for BulkInvoicer."""
 
 from collections.abc import Mapping
+import datetime
 import logging.config
 from pathlib import Path
 import tomllib
@@ -258,6 +259,7 @@ def generate(config: Mapping[str, Any]) -> None:
         .sort("number")
         .select(
             "number",
+            pl.col("date").alias("sort_date"),
             pl.col("date").dt.to_string(date_format).alias("date"),
             pl.col("due date").dt.to_string(date_format).alias("due date"),
             pl.coalesce("client", "display name").alias("client"),
@@ -304,6 +306,7 @@ def generate(config: Mapping[str, Any]) -> None:
         .sort("number")
         .select(
             "number",
+            pl.col("date").alias("sort_date"),
             pl.col("date").dt.to_string(date_format).alias("date"),
             pl.coalesce("client", "display name").alias("client"),
             pl.col("address").alias("client_address"),
@@ -370,17 +373,43 @@ def generate(config: Mapping[str, Any]) -> None:
             logger.error(f"No type specified for output format: {key}")
             raise ValueError(f"Output format '{key}' requires a 'type' configuration.")
 
+        start_date = value.get("start-date")
+        end_date = value.get("end-date")
+
+        df_invoices_report = df_invoices.clone()
+        df_receipts_report = df_receipts.clone()
+
+        if start_date:
+            start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+            logger.info(f"Filtering invoices and receipts from {start_date} onwards.")
+            df_invoices_report = df_invoices_report.filter(
+                pl.col("sort_date") >= start_date
+            )
+            df_receipts_report = df_receipts_report.filter(
+                pl.col("sort_date") >= start_date
+            )
+
+        if end_date:
+            end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+            logger.info(f"Filtering invoices and receipts until {end_date}.")
+            df_invoices_report = df_invoices_report.filter(
+                pl.col("sort_date") <= end_date
+            )
+            df_receipts_report = df_receipts_report.filter(
+                pl.col("sort_date") <= end_date
+            )
+
         if output_type == "combined":
             logger.info("Generating combined PDF for all invoices and receipts.")
             pdf = PDF(config=config)
             pdf.set_title(key)
 
-            for invoice_data in df_invoices.to_dicts():
+            for invoice_data in df_invoices_report.to_dicts():
                 generate_invoice(pdf, config, invoice_data)
 
             logger.info("Invoices generated successfully.")
 
-            for receipt_data in df_receipts.to_dicts():
+            for receipt_data in df_receipts_report.to_dicts():
                 generate_receipt(pdf, config, receipt_data)
 
             logger.info("Receipts generated successfully.")
@@ -390,7 +419,7 @@ def generate(config: Mapping[str, Any]) -> None:
         elif output_type == "individual":
             logger.info("Generating individual PDFs for each invoice and receipt.")
 
-            for invoice_data in df_invoices.to_dicts():
+            for invoice_data in df_invoices_report.to_dicts():
                 pdf = PDF(config=config)
                 pdf.set_title(f"{key} Invoice {invoice_data['number']}")
                 generate_invoice(pdf, config, invoice_data)
@@ -398,7 +427,7 @@ def generate(config: Mapping[str, Any]) -> None:
 
             logger.info("Individual invoices generated successfully.")
 
-            for receipt_data in df_receipts.to_dicts():
+            for receipt_data in df_receipts_report.to_dicts():
                 pdf = PDF(config=config)
                 pdf.set_title(f"{key} Receipt {receipt_data['number']}")
                 generate_receipt(pdf, config, receipt_data)
@@ -415,7 +444,9 @@ def generate(config: Mapping[str, Any]) -> None:
                 pdf = PDF(config=config)
                 pdf.set_title(f"{key} {client_name}")
 
-                client_invoices = df_invoices.filter(pl.col("client") == client_name)
+                client_invoices = df_invoices_report.filter(
+                    pl.col("client") == client_name
+                )
                 for invoice_data in client_invoices.to_dicts():
                     generate_invoice(pdf, config, invoice_data)
 
@@ -423,7 +454,9 @@ def generate(config: Mapping[str, Any]) -> None:
                     f"Invoices for client {client_name} generated successfully."
                 )
 
-                client_receipts = df_receipts.filter(pl.col("client") == client_name)
+                client_receipts = df_receipts_report.filter(
+                    pl.col("client") == client_name
+                )
                 for receipt_data in client_receipts.to_dicts():
                     generate_receipt(pdf, config, receipt_data)
 

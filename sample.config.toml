@@ -31,19 +31,27 @@ transaction-note = "Payment for invoice {INVOICE_NUMBER}"
 currency = "INR"
 
 [footer]
-text = ["GSTIN: 123456789", "__All amounts are in INR.__", "__This is a computer-generated document and does not require a signature.__"]
+text = [
+    "GSTIN: 123456789",
+    "__All amounts are in INR.__",
+    "__This is a computer-generated document and does not require a signature.__",
+]
 
 [excel]
 filepath = "sample.xlsx"
 
 [output.combined]
 path = "output/combined.pdf"
-type = "combined" # combined, individual, or clients
+type = "combined"            # combined, individual, or clients
+start-date = "2025-01-01"
+end-date = "2025-12-31"
 
 [output.individual]
 path = "output/individuals/{NUMBER}.pdf"
 type = "individual"
+start-date = "2025-01-01"
 
 [output.clients]
 type = "clients"
 path = "output/clients/{CLIENT}.pdf"
+end-date = "2025-03-31"
