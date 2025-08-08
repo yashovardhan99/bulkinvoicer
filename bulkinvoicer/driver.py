@@ -323,22 +323,27 @@ def generate(config: Mapping[str, Any]) -> None:
     logger.info("Matching payments to invoices.")
 
     matched: list[dict[str, Any]] = []
+    unmatched: list[dict[str, Any]] = []
 
     for client in df_receipts.select("client").unique().iter_rows():
         df_invoices_client = df_invoices.filter(pl.col("client") == client[0])
         df_receipts_client = df_receipts.filter(pl.col("client") == client[0])
-        matched.extend(
-            match_payments(
-                df_invoices_client.to_dicts(),
-                df_receipts_client.to_dicts(),
-            )
+        matched_payments, unmatched_invoices = match_payments(
+            df_invoices_client.to_dicts(),
+            df_receipts_client.to_dicts(),
         )
+        matched.extend(matched_payments)
+        unmatched.extend(unmatched_invoices)
 
     df_matched = pl.from_dicts(matched)
+
+    df_unpaid_invoices = pl.from_dicts(unmatched)
 
     df_receipts = df_receipts.join(
         df_matched, left_on="number", right_on="receipt", how="inner"
     )
+
+    df_invoices = df_invoices.join(df_unpaid_invoices, on="number", how="left")
 
     logger.info("Payments matched to invoices.")
 

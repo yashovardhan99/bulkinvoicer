@@ -307,11 +307,16 @@ class PDF(FPDF):
 
 def match_payments(
     invoices: Sequence[Mapping[str, Any]], receipts: Sequence[Mapping[str, Any]]
-) -> list[dict[str, Any]]:
-    """Match payments from receipts to invoices."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Match payments from receipts to invoices.
+
+    Returns two lists:
+        - matched_payments: List of receipts with matched invoices.
+        - unmatched_invoices: List of invoices that were not fully paid.
+    """
     if not invoices or not receipts:
         logger.warning("No invoices or receipts to match.")
-        return []
+        return ([], [])
 
     unmatched_invoices = []
     matched_payments = []
@@ -361,4 +366,4 @@ def match_payments(
             }
         )
 
-    return matched_payments
+    return (matched_payments, unmatched_invoices)
