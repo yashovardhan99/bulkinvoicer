@@ -355,6 +355,8 @@ def generate(config: Mapping[str, Any]) -> None:
 
     logger.info("Starting PDF generation.")
 
+    currency = config.get("payment", {}).get("currency", "INR")
+
     for key, value in output_formats.items():
         logger.info(f"Starting with output format: {key}")
         if logger.isEnabledFor(logging.DEBUG):
@@ -399,10 +401,64 @@ def generate(config: Mapping[str, Any]) -> None:
                 pl.col("sort_date") <= end_date
             )
 
+        subtitle = None
+        if start_date and end_date:
+            subtitle = f"From {start_date.strftime(date_format)} to {end_date.strftime(date_format)}"
+        elif start_date:
+            subtitle = f"From {start_date.strftime(date_format)}"
+        elif end_date:
+            subtitle = f"Until {end_date.strftime(date_format)}"
+
+        if value.get("include-summary", False):
+            logger.info("Computing summary for invoices and receipts.")
+            client_count = (
+                pl.concat(
+                    [
+                        df_invoices_report.select("client"),
+                        df_receipts_report.select("client"),
+                    ]
+                )
+                .unique()
+                .count()
+                .item()
+            )
+            invoice_count = df_invoices_report.shape[0]
+            receipt_count = df_receipts_report.shape[0]
+            invoice_total = df_invoices_report.select(pl.col("total").sum()).item()
+            receipt_total = df_receipts_report.select(pl.col("amount").sum()).item()
+            amount_due = df_invoices_report.select(pl.col("balance").sum()).item()
+            advance_payments = (
+                df_receipts_report.explode("invoices")
+                .select(pl.col("invoices").struct.unnest())
+                .filter(pl.col("invoice").is_null())
+                .select("amount")
+                .sum()
+                .item()
+            )
+
         if output_type == "combined":
             logger.info("Generating combined PDF for all invoices and receipts.")
-            pdf = PDF(config=config)
+            pdf = PDF(config=config, cover_page=value.get("include-summary", False))
             pdf.set_title(key)
+
+            if value.get("include-summary", False):
+                logger.info("Including summary in the combined PDF.")
+                pdf.print_cover_page(
+                    {
+                        "title": "Combined Summary",
+                        "subtitle": subtitle,
+                        "date": datetime.datetime.now().strftime(date_format),
+                        "stats": {
+                            "Total clients": client_count,
+                            "Invoices issued": invoice_count,
+                            "Receipts issued": receipt_count,
+                            f"Amount billed ({currency})": invoice_total,
+                            f"Payments received ({currency})": receipt_total,
+                            f"Amount due ({currency})": amount_due,
+                            f"Advance Payments ({currency})": advance_payments,
+                        },
+                    }
+                )
 
             for invoice_data in df_invoices_report.to_dicts():
                 generate_invoice(pdf, config, invoice_data)

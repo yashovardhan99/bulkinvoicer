@@ -1,11 +1,12 @@
 """Common utility functions for the Bulkinvoicer application."""
 
+from decimal import Decimal
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import qrcode
-from fpdf import FPDF
+from fpdf import FPDF, FontFace
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class PDF(FPDF):
         format="A4",
         font_cache_dir="DEPRECATED",
         config: Mapping[str, Any] = {},
+        cover_page: bool = False,
     ):
         """Initialize the PDF with optional configuration."""
         super().__init__(orientation, unit, format, font_cache_dir)
@@ -27,9 +29,14 @@ class PDF(FPDF):
         self.set_author(config["seller"]["name"])
         self.set_creator("Bulkinvoicer")
         self.set_lang("en-IN")
+        self.cover_page = cover_page
 
     def header(self) -> None:
         """Define the header for the PDF."""
+        if self.cover_page and self.page_no() == 1:
+            logger.info("Skipping header for cover page.")
+            return
+
         self.set_font("courier", size=16, style="B")
         self.cell(
             0,
@@ -54,6 +61,10 @@ class PDF(FPDF):
 
     def footer(self) -> None:
         """Define the footer for the PDF."""
+        if self.cover_page and self.page_no() == 1:
+            logger.info("Skipping footer for cover page.")
+            return
+
         if "footer" in self.config and "text" in self.config["footer"]:
             self.set_font("times", size=8)
             for line in self.config["footer"]["text"]:
@@ -176,7 +187,8 @@ class PDF(FPDF):
 
     def get_upi_link(self, invoice_data: Mapping[str, Any]) -> str | None:
         """Generate a UPI link from the configuration."""
-        upi_config = self.config.get("payment", {}).get("upi", {})
+        payment_config = self.config.get("payment", {})
+        upi_config = payment_config.get("upi", {})
 
         upi_id = upi_config.get("upi-id")
         if not upi_id:
@@ -191,7 +203,7 @@ class PDF(FPDF):
         )
 
         amount = invoice_data.get("total")
-        currency = upi_config.get("currency", "INR")
+        currency = payment_config.get("currency", "INR")
 
         if amount is None or not upi_config.get("include-amount", False):
             return f"upi://pay?pa={upi_id}&pn={payee_name}&cu={currency}&tn={note}"
@@ -304,6 +316,61 @@ class PDF(FPDF):
                     markdown=True,
                 )
 
+    def print_cover_page(self, details: Mapping[str, Any]) -> None:
+        """Print a cover page with details."""
+        self.add_page(format="A4")
+        self.set_font("Helvetica", size=16, style="B")
+        fill_color = self.config.get("invoice", {}).get("style-color")
+        self.set_fill_color(fill_color)
+        self.cell(
+            0,
+            15,
+            text=details["title"].upper(),
+            new_x="LMARGIN",
+            new_y="NEXT",
+            align="C",
+            fill=True,
+        )
+        self.ln(5)
+
+        if details.get("subtitle"):
+            self.set_font("Helvetica", size=12, style="I")
+            self.cell(
+                0,
+                text=details["subtitle"].upper(),
+                new_x="LMARGIN",
+                new_y="NEXT",
+                align="C",
+            )
+            self.ln(10)
+
+        self.set_font("Helvetica", size=10)
+
+        self.cell(0, text=details["date"], new_x="LMARGIN", new_y="NEXT", align="R")
+
+        self.ln(10)
+
+        self.set_font("Helvetica", size=12)
+        number_font = FontFace(size_pt=36, emphasis="B")
+        self.set_fill_color(0)
+
+        with self.table(
+            text_align=("L", "J"),
+            padding=8,
+            first_row_as_headings=False,
+            cell_fill_mode="ROWS",
+            borders_layout="NONE",
+            cell_fill_color=fill_color,
+            col_widths=(12, 20),
+            width=int(self.epw) - 20,
+        ) as table:
+            for key, value in details.get("stats", {}).items():
+                if isinstance(value, (int, Decimal)):
+                    value = format_number(value)
+                row = table.row()
+                row.cell(value, style=number_font)
+                row.cell(key)
+
 
 def match_payments(
     invoices: Sequence[Mapping[str, Any]], receipts: Sequence[Mapping[str, Any]]
@@ -367,3 +434,15 @@ def match_payments(
         )
 
     return (matched_payments, unmatched_invoices)
+
+
+def format_number(value: Decimal | int) -> str:
+    """Format a number to display in summaries."""
+    if value > 1_00_000:
+        return f"{value / 1_00_000:.2f}L"
+    elif value > 1_000:
+        return f"{value / 1_000:.2f}K"
+    elif isinstance(value, Decimal):
+        return f"{value:.2f}"
+    else:
+        return str(value)

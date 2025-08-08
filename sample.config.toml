@@ -21,6 +21,7 @@ prefix = "Thank You!"
 
 [payment]
 payment-methods-text = "Pay via UPI/Cash"
+currency = "INR"
 
 [payment.upi]
 upi-id = "1234567890@upi"
@@ -28,7 +29,6 @@ bottom-note = "Scan the above QR code to pay via UPI"
 include-link = true
 include-amount = true
 transaction-note = "Payment for invoice {INVOICE_NUMBER}"
-currency = "INR"
 
 [footer]
 text = [
