@@ -1,10 +1,11 @@
 """Common utility functions for the Bulkinvoicer application."""
 
 import logging
-from typing import Any
 from collections.abc import Mapping, Sequence
-from fpdf import FPDF
+from typing import Any
+
 import qrcode
+from fpdf import FPDF
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,9 @@ class PDF(FPDF):
             if not upi_link:
                 logger.warning("UPI link could not be generated. Skipping UPI section.")
                 return
-            img = qrcode.make(upi_link)
+            qr = qrcode.QRCode()
+            qr.add_data(upi_link)
+            img = qr.make_image()
 
             self.image(
                 img.get_image(),

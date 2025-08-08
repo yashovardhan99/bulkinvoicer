@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def load_config() -> Mapping[str, Any]:
     """Load configuration from a TOML file."""
     try:
-        with open("sample.config.toml", "rb") as f:
+        with open("config.toml", "rb") as f:
             config = tomllib.load(f)
             logger.info("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
@@ -59,7 +59,9 @@ def generate_invoice(
 
     invoice_items = zip(descriptions, unit_prices, quantities, totals)
 
-    headings_style = FontFace(emphasis="BOLD", fill_color=(248, 230, 229))
+    headings_style = FontFace(
+        emphasis="BOLD", fill_color=config.get("invoice", {}).get("style-color")
+    )
     with pdf.table(
         text_align=("LEFT", "CENTER", "CENTER", "RIGHT"),
         borders_layout="NONE",
@@ -128,7 +130,9 @@ def generate_receipt(
 
     pdf.set_font("times", size=10)
 
-    headings_style = FontFace(emphasis="BOLD", fill_color=(248, 230, 229))
+    headings_style = FontFace(
+        emphasis="BOLD", fill_color=config.get("receipt", {}).get("style-color")
+    )
     with pdf.table(
         text_align=("LEFT", "RIGHT"),
         borders_layout="NONE",

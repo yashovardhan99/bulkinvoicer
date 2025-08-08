@@ -8,10 +8,12 @@ show-subtotal = true
 date-format = "%d %b %Y"
 tax-columns = ["CGST", "SGST", "IGST"]
 discount-column = "discount"
+style-color = "#f7e6e4"
 
 [receipt]
 decimals = 2
 date-format = "%d %b %Y"
+style-color = "#f7e6e4"
 
 [signature]
 prefix = "Thank You!"
