@@ -8,7 +8,7 @@ from typing import Any
 from collections.abc import Sequence
 from fpdf import FontFace
 import polars as pl
-from bulkinvoicer.utils import PDF
+from bulkinvoicer.utils import PDF, match_payments
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -117,6 +117,10 @@ def generate_receipt(
 ) -> None:
     """Generate a receipt PDF using the provided configuration."""
     logger.info("Generating receipt with the provided configuration.")
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Receipt data: {receipt_data}")
+
     pdf.add_page(format="A4")
 
     pdf.print_receipt_header(receipt_data)
@@ -134,9 +138,17 @@ def generate_receipt(
         header_row.cell("Description".upper())
         header_row.cell("Amount".upper())
 
-        row = table.row()
-        row.cell("Payment Received")
-        row.cell(str(receipt_data.get("amount", "0.00")))
+        for invoice in receipt_data.get("invoices", []):
+            row = table.row()
+
+            invoice_number = invoice.get("invoice")
+            description = (
+                f"Payment for Invoice {invoice_number}"
+                if invoice_number
+                else "Advance Payment"
+            )
+            row.cell(description)
+            row.cell(str(invoice.get("amount", "0.00")))
 
         total_row = table.row(style=headings_style)
         total_row.cell("Total".upper(), align="RIGHT")
@@ -151,9 +163,6 @@ def generate_receipt(
     pdf.print_signature()
 
     pdf.set_y(max(pdf.get_y(), section_end_y))
-
-    # receipt_number = receipt_data.get("number", "")
-    # pdf.code39(f"*{receipt_number}*", x=pdf.l_margin, y=pdf.t_margin + 20, w=0.5, h=3)
 
     for i in range(20, 1, -1):
         if not pdf.will_page_break(i):
@@ -303,10 +312,29 @@ def generate(config: Mapping[str, Any]) -> None:
             pl.col("email").alias("client_email"),
             pl.col("amount").cast(pl.Decimal(None, decimals)),
             pl.col("payment mode"),
+            pl.col("reference").cast(pl.Utf8),
         )
     )
 
     logger.info("Receipts DataFrame prepared.")
+
+    matched: list[dict[str, Any]] = []
+
+    for client in df_receipts.select("client").unique().iter_rows():
+        df_invoices_client = df_invoices.filter(pl.col("client") == client[0])
+        df_receipts_client = df_receipts.filter(pl.col("client") == client[0])
+        matched.extend(
+            match_payments(
+                df_invoices_client.to_dicts(),
+                df_receipts_client.to_dicts(),
+            )
+        )
+
+    df_matched = pl.from_dicts(matched)
+
+    df_receipts = df_receipts.join(
+        df_matched, left_on="number", right_on="receipt", how="inner"
+    )
 
     for receipt_data in df_receipts.to_dicts():
         generate_receipt(pdf, config, receipt_data)

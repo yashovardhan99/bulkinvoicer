@@ -13,8 +13,6 @@ discount-column = "discount"
 [receipt]
 filename = "{RECEIPT_NUMBER}.pdf"
 decimals = 2
-auto-match-invoices = true
-allow-advance-payments = true
 date-format = "%d %b %Y"
 
 [signature]

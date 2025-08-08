@@ -1,5 +1,6 @@
 """Common utility functions for the Bulkinvoicer application."""
 
+from decimal import Decimal
 import logging
 from typing import Any
 from collections.abc import Mapping, Sequence
@@ -255,6 +256,18 @@ class PDF(FPDF):
             new_y="NEXT",
             align="L",
         )
+        self.set_font("times", size=10)
+        if "reference" in receipt_data:
+            reference = receipt_data["reference"]
+            if reference:
+                self.cell(
+                    0,
+                    None,
+                    f"Reference #: {reference}",
+                    new_x="LMARGIN",
+                    new_y="NEXT",
+                    align="L",
+                )
 
     def print_signature(self) -> None:
         """Print signature section in the PDF."""
@@ -288,3 +301,62 @@ class PDF(FPDF):
                     align="R",
                     markdown=True,
                 )
+
+
+def match_payments(
+    invoices: Sequence[Mapping[str, Any]], receipts: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Match payments from receipts to invoices."""
+    if not invoices or not receipts:
+        logger.warning("No invoices or receipts to match.")
+        return []
+
+    unmatched_invoices = []
+    matched_payments = []
+
+    for invoice in invoices:
+        invoice_number = invoice.get("number")
+        if not invoice_number:
+            logger.warning("Invoice without number found. Skipping.")
+            continue
+
+        invoice_amount = invoice.get("total", 0)
+        unmatched_invoices.append(
+            {
+                "number": invoice_number,
+                "balance": invoice_amount,
+            }
+        )
+
+    for receipt in receipts:
+        receipt_number = receipt.get("number")
+        receipt_amount = receipt.get("amount", 0)
+        receipt_balance = receipt_amount
+
+        matches = []
+
+        while receipt_balance > 0 and unmatched_invoices:
+            invoice = unmatched_invoices[0]
+            invoice_number = invoice["number"]
+            invoice_balance = invoice["balance"]
+
+            if receipt_balance >= invoice_balance:
+                matches.append({"invoice": invoice_number, "amount": invoice_balance})
+                receipt_balance -= invoice_balance
+                unmatched_invoices.pop(0)
+            else:
+                matches.append({"invoice": invoice_number, "amount": receipt_balance})
+                invoice["balance"] -= receipt_balance
+                receipt_balance = 0
+
+        if receipt_balance > 0:
+            matches.append({"invoice": None, "amount": receipt_balance})
+
+        matched_payments.append(
+            {
+                "receipt": receipt_number,
+                "invoices": matches,
+            }
+        )
+
+    return matched_payments
