@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling >= 1.27.0, < 2.0.0", "hatch-vcs == 0.4.*"]
+build-backend = "hatchling.build"
+
 [project]
 name = "bulkinvoicer"
 description = "A simple python script to quickly create bulk invoices."
@@ -6,6 +10,7 @@ dependencies = [
     "polars[calamine] >= 1.29.0, < 2.0.0",
     "qrcode >= 8.2, < 9.0",
     "fpdf2 >= 2.8.3, < 3.0.0",
+    "uharfbuzz",
 ]
 requires-python = ">=3.9"
 authors = [
@@ -90,3 +95,6 @@ exclude_also = [
     # Don't complaint about type-checking code, it isn't run:
     "if TYPE_CHECKING",
 ]
+
+[tool.hatch.version]
+source = "vcs"

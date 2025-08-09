@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import qrcode
-from fpdf import FPDF, FontFace
+from fpdf import FPDF
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,24 @@ class PDF(FPDF):
     ):
         """Initialize the PDF with optional configuration."""
         super().__init__(orientation, unit, format, font_cache_dir)
+
+        logger.info("Adding fonts.")
+
+        self.add_font("Noto Sans", "", "fonts/NotoSans-Regular.ttf")
+        self.add_font("Noto Sans", "B", "fonts/NotoSans-Bold.ttf")
+        self.add_font("Noto Sans", "I", "fonts/NotoSans-Italic.ttf")
+        self.add_font("Noto Sans", "BI", "fonts/NotoSans-BoldItalic.ttf")
+
+        self.add_font("Noto Sans Mono", "", "fonts/NotoSansMono-Regular.ttf")
+        self.add_font("Noto Sans Mono", "B", "fonts/NotoSansMono-Bold.ttf")
+
+        self.add_font("Noto Serif", "", "fonts/NotoSerif-Regular.ttf")
+        self.add_font("Noto Serif", "B", "fonts/NotoSerif-Bold.ttf")
+        self.add_font("Noto Serif", "I", "fonts/NotoSerif-Italic.ttf")
+        self.add_font("Noto Serif", "BI", "fonts/NotoSerif-BoldItalic.ttf")
+
+        self.set_text_shaping(True)
+
         self.config = config
         self.set_author(config["seller"]["name"])
         self.set_creator("Bulkinvoicer")
@@ -37,9 +55,10 @@ class PDF(FPDF):
             logger.info("Skipping header for cover page.")
             return
 
-        self.set_font("courier", size=16, style="B")
+        self.set_font("noto sans", size=16, style="B")
         self.cell(
             0,
+            None,
             text=self.config["seller"]["name"].upper(),
             new_x="LMARGIN",
             new_y="NEXT",
@@ -47,9 +66,10 @@ class PDF(FPDF):
             markdown=True,
         )
         if "tagline" in self.config["seller"]:
-            self.set_font("helvetica", size=8, style="I")
+            self.set_font("noto sans", size=8, style="I")
             self.cell(
                 0,
+                None,
                 text=self.config["seller"]["tagline"],
                 new_x="LMARGIN",
                 new_y="NEXT",
@@ -66,7 +86,7 @@ class PDF(FPDF):
             return
 
         if "footer" in self.config and "text" in self.config["footer"]:
-            self.set_font("times", size=8)
+            self.set_font("Noto Serif", size=8)
             for line in self.config["footer"]["text"]:
                 self.cell(
                     0,
@@ -86,7 +106,7 @@ class PDF(FPDF):
         client_email: str | None = None,
     ):
         """Print the client's details in the PDF."""
-        self.set_font("times", size=10)
+        self.set_font("Noto Serif", size=10)
         self.multi_cell(
             0,
             None,
@@ -108,22 +128,23 @@ class PDF(FPDF):
         metadata: Sequence[tuple[str, str]],
     ):
         """Print the metadata in the PDF."""
-        self.set_font("times", size=10)
-
         needed_gap = 0.0
+
         for _, value in metadata:
             needed_gap = max(needed_gap, self.get_string_width(value, markdown=True))
 
         for label, value in metadata:
+            self.set_font("Noto Serif", size=10)
             self.cell(
                 self.epw - needed_gap - 2,
                 None,
-                label.upper() + ":",
+                label.upper() + ": ",
                 new_x="END",
                 new_y="LAST",
                 align="R",
                 markdown=True,
             )
+            self.set_font("Noto Sans Mono", size=10)
             self.cell(
                 0,
                 None,
@@ -221,7 +242,7 @@ class PDF(FPDF):
             )
             return
 
-        self.set_font("times", size=10, style="B")
+        self.set_font("Noto Serif", size=10, style="B")
 
         if "payment-methods-text" in payment_config:
             self.cell(
@@ -261,7 +282,7 @@ class PDF(FPDF):
     def print_receipt_payment_details(self, receipt_data: Mapping[str, Any]):
         """Print payment details in the PDF."""
         payment_mode = receipt_data.get("payment mode", "cash").upper()
-        self.set_font("times", size=10, style="B")
+        self.set_font("Noto Serif", size=10, style="B")
         self.cell(
             0,
             None,
@@ -270,22 +291,21 @@ class PDF(FPDF):
             new_y="NEXT",
             align="L",
         )
-        self.set_font("times", size=10)
         if "reference" in receipt_data:
             reference = receipt_data["reference"]
             if reference:
+                self.set_font("Noto Serif", size=10)
+                self.cell(text="Reference #: ")
+                self.set_font("Noto Sans Mono", size=10)
                 self.cell(
-                    0,
-                    None,
-                    f"Reference #: {reference}",
+                    text=reference,
                     new_x="LMARGIN",
                     new_y="NEXT",
-                    align="L",
                 )
 
     def print_signature(self) -> None:
         """Print signature section in the PDF."""
-        self.set_font("times", size=10, style="B")
+        self.set_font("Noto Serif", size=10, style="B")
 
         if "signature" in self.config:
             logger.info("Printing signature section.")
@@ -302,7 +322,7 @@ class PDF(FPDF):
                     align="R",
                 )
 
-            self.set_font("Helvetica", size=12, style="BU")
+            self.set_font("noto sans", size=12, style="BU")
 
             if "text" in signature_config:
                 self.ln(10)
@@ -316,60 +336,118 @@ class PDF(FPDF):
                     markdown=True,
                 )
 
-    def print_cover_page(self, details: Mapping[str, Any]) -> None:
+    def add_combined_summary(self, details: Mapping[str, Any]) -> None:
         """Print a cover page with details."""
         self.add_page(format="A4")
-        self.set_font("Helvetica", size=16, style="B")
+
         fill_color = self.config.get("invoice", {}).get("style-color")
-        self.set_fill_color(fill_color)
+
+        # Header section
+
+        logger.info("Printing header section for summary.")
+
+        self.set_font("noto sans", size=18, style="B")
         self.cell(
             0,
-            15,
-            text=details["title"].upper(),
+            12,
+            text="Invoices and Receipts Summary",
             new_x="LMARGIN",
             new_y="NEXT",
             align="C",
-            fill=True,
         )
-        self.ln(5)
+        self.set_font("noto sans", size=11)
 
-        if details.get("subtitle"):
-            self.set_font("Helvetica", size=12, style="I")
+        if details.get("period"):
             self.cell(
                 0,
-                text=details["subtitle"].upper(),
+                text=details["period"],
                 new_x="LMARGIN",
                 new_y="NEXT",
                 align="C",
             )
-            self.ln(10)
+        self.cell(
+            0, text=details["generated"], new_x="LMARGIN", new_y="NEXT", align="C"
+        )
+        self.ln(6)
 
-        self.set_font("Helvetica", size=10)
+        # Key figures section
+        key_figures = details.get("key_figures", [])
+        key_figures = filter(None, key_figures)
 
-        self.cell(0, text=details["date"], new_x="LMARGIN", new_y="NEXT", align="R")
+        self.set_font("noto sans", size=14, style="B")
+        h_space_label = 0.0
+        h_space_value = 0.0
 
-        self.ln(10)
+        for label, value, *_ in details.get("key_figures", []):
+            h_space_label = max(h_space_label, self.get_string_width(label))
+            h_space_value = max(
+                h_space_value,
+                self.get_string_width(
+                    format_currency(
+                        value,
+                        currency=self.config.get("payment", {}).get("currency", "INR"),
+                    )
+                    if isinstance(value, Decimal)
+                    else str(value)
+                ),
+            )
 
-        self.set_font("Helvetica", size=12)
-        number_font = FontFace(size_pt=36, emphasis="B")
-        self.set_fill_color(0)
+        for label, value, *extra in key_figures:
+            self.set_font("noto sans", size=14, style="B")
+            self.cell(
+                h_space_label + self.c_margin * 3,
+                10,
+                text=label,
+            )
+            self.set_font("noto sans mono", size=14, style="B")
+            self.cell(
+                h_space_value + self.c_margin * 3,
+                10,
+                text=format_currency(
+                    value,
+                    currency=self.config.get("payment", {}).get("currency", "INR"),
+                )
+                if isinstance(value, Decimal)
+                else str(value),
+                align="R",
+            )
+            self.set_font("noto serif", size=14)
+            self.cell(
+                0,
+                10,
+                text=extra[0] if extra else "",
+                new_x="LMARGIN",
+                new_y="NEXT",
+            )
 
-        with self.table(
-            text_align=("L", "J"),
-            padding=8,
-            first_row_as_headings=False,
-            cell_fill_mode="ROWS",
-            borders_layout="NONE",
-            cell_fill_color=fill_color,
-            col_widths=(12, 20),
-            width=int(self.epw) - 20,
-        ) as table:
-            for key, value in details.get("stats", {}).items():
-                if isinstance(value, (int, Decimal)):
-                    value = format_number(value)
-                row = table.row()
-                row.cell(value, style=number_font)
-                row.cell(key)
+        # self.set_font("Helvetica", size=11)
+        # table_header_font = FontFace(size_pt=12, emphasis="B", fill_color=fill_color)
+
+        # self.set_fill_color(fill_color)
+        # self.set_font("Helvetica", size=10)
+
+        # self.ln(10)
+
+        # self.set_font("Helvetica", size=12)
+        # number_font = FontFace(size_pt=36, emphasis="B")
+        # self.set_fill_color(0)
+
+        # with self.table(
+        #     text_align=("L", "J"),
+        #     padding=8,
+        #     first_row_as_headings=False,
+        #     cell_fill_mode="ROWS",
+        #     borders_layout="NONE",
+        #     cell_fill_color=fill_color,
+        #     col_widths=(12, 20),
+        #     width=int(self.epw) - 20,
+        # ) as table:
+        #     for key, value in details.get("stats", {}).items():
+        #         if isinstance(value, (int, Decimal)):
+        #             value = format_number(value)
+        #         row = table.row()
+        #         row.cell(value, style=number_font)
+        #         row.cell(key)
 
 
 def match_payments(
@@ -434,6 +512,25 @@ def match_payments(
         )
 
     return (matched_payments, unmatched_invoices)
+
+
+def format_currency(value: Decimal, currency: str = "INR") -> str:
+    """Format a Decimal value as currency."""
+    if not isinstance(value, Decimal):
+        raise TypeError("Value must be a Decimal instance.")
+
+    currency_symbol = {
+        "INR": "₹",
+        "USD": "$",
+    }.get(currency)
+
+    if currency_symbol:
+        if value < 0:
+            return f"-{currency_symbol}{abs(value):,}"
+        else:
+            return f"{currency_symbol}{value:,}"
+    else:
+        return f"{value:,} {currency}"
 
 
 def format_number(value: Decimal | int) -> str:

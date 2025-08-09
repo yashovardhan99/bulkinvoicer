@@ -2,7 +2,9 @@
 
 from collections.abc import Mapping
 import datetime
+from decimal import Decimal
 import logging.config
+import numbers
 from pathlib import Path
 import tomllib
 import logging
@@ -10,7 +12,7 @@ from typing import Any
 from collections.abc import Sequence
 from fpdf import FontFace
 import polars as pl
-from bulkinvoicer.utils import PDF, match_payments
+from bulkinvoicer.utils import PDF, format_currency, match_payments
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -38,11 +40,14 @@ def generate_invoice(
 ) -> None:
     """Generate an invoice PDF using the provided configuration."""
     logger.info("Generating invoice with the provided configuration.")
+
+    currency = config.get("payment", {}).get("currency", "INR")
+
     pdf.add_page(format="A4")
 
     pdf.print_invoice_header(invoice_data)
 
-    pdf.set_font("times", size=10)
+    pdf.set_font("Noto Serif", size=10)
 
     # Invoice Table
 
@@ -61,8 +66,20 @@ def generate_invoice(
     invoice_items = zip(descriptions, unit_prices, quantities, totals)
 
     headings_style = FontFace(
-        emphasis="BOLD", fill_color=config.get("invoice", {}).get("style-color")
+        family="Noto Sans",
+        emphasis="BOLD",
+        fill_color=config.get("invoice", {}).get("style-color"),
     )
+
+    labels_style = FontFace(
+        family="Noto Serif",
+    )
+
+    numbers_style = FontFace(
+        family="Noto Sans Mono",
+    )
+
+    pdf.set_font(labels_style.family, size=10)
     with pdf.table(
         text_align=("LEFT", "CENTER", "CENTER", "RIGHT"),
         borders_layout="NONE",
@@ -76,28 +93,56 @@ def generate_invoice(
         for invoice_row in invoice_items:
             row = table.row()
             for item in invoice_row:
-                row.cell(str(item))
+                value = item
+                if type(value) is Decimal:
+                    value = format_currency(value, currency)
+                else:
+                    value = str(value)
+
+                row.cell(
+                    value,
+                    style=numbers_style
+                    if isinstance(item, (Decimal, int, float))
+                    else labels_style,
+                )
 
         table.row()
 
         if config.get("invoice", {}).get("show-subtotal", True):
             subtotal_row = table.row(style=FontFace(emphasis="BOLD"))
-            subtotal_row.cell("Subtotal", colspan=3, align="LEFT")
-            subtotal_row.cell(str(invoice_data.get("subtotal", "0.00")))
+            subtotal_row.cell(
+                "Subtotal",
+                colspan=3,
+                align="LEFT",
+            )
+            subtotal_row.cell(
+                format_currency(invoice_data.get("subtotal", Decimal()), currency),
+                style=numbers_style,
+            )
 
         if config.get("invoice", {}).get("discount-column", False):
             discount_row = table.row()
             discount_row.cell("Discount", colspan=3, align="RIGHT")
-            discount_row.cell(str(invoice_data.get("discount", "0.00")))
+            discount_row.cell(
+                format_currency(invoice_data.get("discount", Decimal()), currency),
+                style=numbers_style,
+            )
 
         for tax_column in config.get("invoice", {}).get("tax-columns", []):
             tax_row = table.row()
             tax_row.cell(tax_column.upper(), colspan=3, align="RIGHT", padding=(0, 2))
-            tax_row.cell(str(invoice_data.get(tax_column, "0.00")), padding=(0, 2))
+            tax_row.cell(
+                format_currency(invoice_data.get(tax_column, Decimal()), currency),
+                padding=(0, 2),
+                style=numbers_style,
+            )
 
         total_row = table.row(style=headings_style)
         total_row.cell("Total".upper(), colspan=3, align="RIGHT")
-        total_row.cell(str(invoice_data.get("total", "0.00")))
+        total_row.cell(
+            format_currency(invoice_data.get("total", Decimal()), currency),
+            style=numbers_style,
+        )
 
     pdf.ln(20)  # Line break for spacing
 
@@ -122,6 +167,8 @@ def generate_receipt(
     """Generate a receipt PDF using the provided configuration."""
     logger.info("Generating receipt with the provided configuration.")
 
+    currency = config.get("payment", {}).get("currency", "INR")
+
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Receipt data: {receipt_data}")
 
@@ -129,11 +176,20 @@ def generate_receipt(
 
     pdf.print_receipt_header(receipt_data)
 
-    pdf.set_font("times", size=10)
-
     headings_style = FontFace(
         emphasis="BOLD", fill_color=config.get("receipt", {}).get("style-color")
     )
+
+    labels_style = FontFace(
+        family="Noto Serif",
+    )
+
+    numbers_style = FontFace(
+        family="Noto Sans Mono",
+    )
+
+    pdf.set_font(labels_style.family, size=10)
+
     with pdf.table(
         text_align=("LEFT", "RIGHT"),
         borders_layout="NONE",
@@ -154,11 +210,17 @@ def generate_receipt(
                 else "Advance Payment"
             )
             row.cell(description)
-            row.cell(str(invoice.get("amount", "0.00")))
+            row.cell(
+                format_currency(invoice.get("amount", Decimal()), currency),
+                style=numbers_style,
+            )
 
         total_row = table.row(style=headings_style)
         total_row.cell("Total".upper(), align="RIGHT")
-        total_row.cell(str(receipt_data.get("amount", "0.00")))
+        total_row.cell(
+            format_currency(receipt_data.get("amount", Decimal()), currency),
+            style=numbers_style,
+        )
 
     pdf.ln(20)
 
@@ -225,15 +287,18 @@ def generate(config: Mapping[str, Any]) -> None:
 
     logger.info("Starting data preperation.")
     df_invoices = (
-        df_invoice_data.with_columns(
+        df_invoice_data.filter(pl.col("date").is_not_null())
+        .with_columns(
             pl.col("unit").cast(pl.Decimal(None, decimals)),
             pl.col("qty").cast(pl.UInt32()),
+        )
+        .with_columns(
             amount=(pl.col("unit") * pl.col("qty")).cast(pl.Decimal(None, decimals)),
         )
         .group_by("number")
         .agg(
-            pl.max("date"),
-            pl.max("due date"),
+            pl.max("date").cast(pl.Date),
+            pl.max("due date").cast(pl.Date),
             pl.first("client"),
             pl.sum("amount").alias("subtotal"),
             (
@@ -294,7 +359,8 @@ def generate(config: Mapping[str, Any]) -> None:
     decimals = receipt_config.get("decimals", 2)
 
     df_receipts = (
-        df_receipt_data.with_columns(
+        df_receipt_data.filter(pl.col("date").is_not_null())
+        .with_columns(
             pl.col("amount").cast(pl.Decimal(None, decimals)),
         )
         .join(
@@ -306,8 +372,8 @@ def generate(config: Mapping[str, Any]) -> None:
         .sort("number")
         .select(
             "number",
-            pl.col("date").alias("sort_date"),
-            pl.col("date").dt.to_string(date_format).alias("date"),
+            pl.col("date").cast(pl.Date).alias("sort_date"),
+            pl.col("date").cast(pl.Date).dt.to_string(date_format).alias("date"),
             pl.coalesce("client", "display name").alias("client"),
             pl.col("address").alias("client_address"),
             pl.col("phone").alias("client_phone"),
@@ -338,9 +404,17 @@ def generate(config: Mapping[str, Any]) -> None:
         matched.extend(matched_payments)
         unmatched.extend(unmatched_invoices)
 
-    df_matched = pl.from_dicts(matched)
+    df_matched = pl.from_dicts(
+        matched,
+        schema={
+            "receipt": pl.Utf8,
+            "invoices": pl.List,
+        },
+    )
 
-    df_unpaid_invoices = pl.from_dicts(unmatched)
+    df_unpaid_invoices = pl.from_dicts(
+        unmatched, schema={"number": pl.Utf8, "balance": pl.Decimal}
+    )
 
     df_receipts = df_receipts.join(
         df_matched, left_on="number", right_on="receipt", how="inner"
@@ -381,6 +455,14 @@ def generate(config: Mapping[str, Any]) -> None:
         df_invoices_report = df_invoices.clone()
         df_receipts_report = df_receipts.clone()
 
+        df_invoices_open = df_invoices_report.clone()
+        df_receipts_open = df_receipts_report.clone()
+
+        df_invoices_close = df_invoices_report.clone()
+        df_receipts_close = df_receipts_report.clone()
+
+        # print(df_receipts_report)
+
         if start_date:
             start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
             logger.info(f"Filtering invoices and receipts from {start_date} onwards.")
@@ -390,6 +472,9 @@ def generate(config: Mapping[str, Any]) -> None:
             df_receipts_report = df_receipts_report.filter(
                 pl.col("sort_date") >= start_date
             )
+
+            df_invoices_open = df_invoices.filter(pl.col("sort_date") < start_date)
+            df_receipts_open = df_receipts.filter(pl.col("sort_date") < start_date)
 
         if end_date:
             end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
@@ -401,62 +486,74 @@ def generate(config: Mapping[str, Any]) -> None:
                 pl.col("sort_date") <= end_date
             )
 
-        subtitle = None
-        if start_date and end_date:
-            subtitle = f"From {start_date.strftime(date_format)} to {end_date.strftime(date_format)}"
-        elif start_date:
-            subtitle = f"From {start_date.strftime(date_format)}"
-        elif end_date:
-            subtitle = f"Until {end_date.strftime(date_format)}"
+            df_invoices_close = df_invoices.filter(pl.col("sort_date") <= end_date)
+            df_receipts_close = df_receipts.filter(pl.col("sort_date") <= end_date)
 
-        if value.get("include-summary", False):
-            logger.info("Computing summary for invoices and receipts.")
-            client_count = (
-                pl.concat(
-                    [
-                        df_invoices_report.select("client"),
-                        df_receipts_report.select("client"),
-                    ]
-                )
-                .unique()
-                .count()
-                .item()
+        reporting_period_text = None
+        if start_date and end_date:
+            reporting_period_text = f"Period: {start_date.strftime(date_format)} - {end_date.strftime(date_format)}"
+        elif start_date:
+            reporting_period_text = (
+                f"Period: Starting {start_date.strftime(date_format)}"
             )
-            invoice_count = df_invoices_report.shape[0]
-            receipt_count = df_receipts_report.shape[0]
-            invoice_total = df_invoices_report.select(pl.col("total").sum()).item()
-            receipt_total = df_receipts_report.select(pl.col("amount").sum()).item()
-            amount_due = df_invoices_report.select(pl.col("balance").sum()).item()
-            advance_payments = (
-                df_receipts_report.explode("invoices")
-                .select(pl.col("invoices").struct.unnest())
-                .filter(pl.col("invoice").is_null())
-                .select("amount")
-                .sum()
-                .item()
-            )
+        elif end_date:
+            reporting_period_text = f"Period: Ending {end_date.strftime(date_format)}"
 
         if output_type == "combined":
             logger.info("Generating combined PDF for all invoices and receipts.")
+
+            (
+                invoice_count,
+                receipt_count,
+                invoice_total,
+                receipt_total,
+                opening_balance,
+                closing_balance,
+            ) = get_key_figures(
+                decimals,
+                value,
+                df_invoices_report,
+                df_receipts_report,
+                df_invoices_open,
+                df_receipts_open,
+                df_invoices_close,
+                df_receipts_close,
+            )
+
             pdf = PDF(config=config, cover_page=value.get("include-summary", False))
             pdf.set_title(key)
 
             if value.get("include-summary", False):
                 logger.info("Including summary in the combined PDF.")
-                pdf.print_cover_page(
+                pdf.add_combined_summary(
                     {
-                        "title": "Combined Summary",
-                        "subtitle": subtitle,
-                        "date": datetime.datetime.now().strftime(date_format),
-                        "stats": {
-                            "Total clients": client_count,
-                            "Invoices issued": invoice_count,
-                            "Receipts issued": receipt_count,
-                            f"Amount billed ({currency})": invoice_total,
-                            f"Payments received ({currency})": receipt_total,
-                            f"Amount due ({currency})": amount_due,
-                            f"Advance Payments ({currency})": advance_payments,
-                        },
+                        "period": reporting_period_text,
+                        "generated": f"Generated: {datetime.datetime.now().strftime(date_format)}",
+                        "key_figures": [
+                            (
+                                "Opening Balance: ",
+                                opening_balance,
+                            )
+                            if start_date
+                            else None,
+                            (
+                                "Total Invoiced: ",
+                                invoice_total,
+                                f"({invoice_count} invoices)",
+                            ),
+                            (
+                                "Total Received: ",
+                                receipt_total,
+                                f"({receipt_count} receipts)",
+                            ),
+                            (
+                                "Closing Balance: ",
+                                closing_balance,
+                                f"({'Due' if closing_balance > 0 else 'Overpaid'})"
+                                if closing_balance != 0
+                                else "",
+                            ),
+                        ],
                     }
                 )
 
@@ -526,6 +623,52 @@ def generate(config: Mapping[str, Any]) -> None:
             raise ValueError(
                 f"Output format '{key}' has an unknown 'type': {output_type}"
             )
+
+
+def get_key_figures(
+    decimals,
+    value,
+    df_invoices_report,
+    df_receipts_report,
+    df_invoices_open,
+    df_receipts_open,
+    df_invoices_close,
+    df_receipts_close,
+):
+    if value.get("include-summary", False):
+        logger.info("Computing summary for invoices and receipts.")
+
+        invoice_count = df_invoices_report.shape[0]
+        receipt_count = df_receipts_report.shape[0]
+        invoice_total = df_invoices_report.select(pl.col("total").sum()).item()
+        receipt_total = df_receipts_report.select(pl.col("amount").sum()).item()
+
+        opening_balance = (
+            df_invoices_open.select(
+                pl.col("total").cast(pl.Decimal(None, decimals)).sum()
+            ).item()
+            - df_receipts_open.select(
+                pl.col("amount").cast(pl.Decimal(None, decimals)).sum()
+            ).item()
+        )
+
+        closing_balance = (
+            df_invoices_close.select(
+                pl.col("total").cast(pl.Decimal(None, decimals)).sum()
+            ).item()
+            - df_receipts_close.select(
+                pl.col("amount").cast(pl.Decimal(None, decimals)).sum()
+            ).item()
+        )
+
+    return (
+        invoice_count,
+        receipt_count,
+        invoice_total,
+        receipt_total,
+        opening_balance,
+        closing_balance,
+    )
 
 
 def main() -> None:
