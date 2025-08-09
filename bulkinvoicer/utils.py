@@ -558,7 +558,7 @@ class PDF(FPDF):
                 )
                 for client in client_summaries:
                     row = client_table.row()
-                    row.cell(client["client"])
+                    row.cell(client["client_display_name"] or client["client"])
                     row.cell(
                         format_currency(client["opening_balance"], currency),
                         style=self.numbers_font,
@@ -646,6 +646,8 @@ def match_payments(
 
 def format_currency(value: Decimal, currency: str = "INR") -> str:
     """Format a Decimal value as currency."""
+    if value is None:
+        return format_currency(Decimal(), currency)
     if not isinstance(value, Decimal):
         raise TypeError("Value must be a Decimal instance.")
 

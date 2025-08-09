@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def load_config() -> Mapping[str, Any]:
     """Load configuration from a TOML file."""
     try:
-        with open("sample.config.toml", "rb") as f:
+        with open("config.toml", "rb") as f:
             config = tomllib.load(f)
             logger.info("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
@@ -180,9 +180,7 @@ def generate_receipt(
         headings_style=headings_style,
         col_widths=(3, 1),
     ) as table:
-        header_row = table.row()
-        header_row.cell("Description".upper())
-        header_row.cell("Amount".upper())
+        table.row(("DESCRIPTION", "AMOUNT"))  # Header row
 
         for invoice in receipt_data.get("invoices", []):
             row = table.row()
@@ -284,16 +282,18 @@ def generate(config: Mapping[str, Any]) -> None:
         .group_by("number")
         .agg(
             pl.max("date").cast(pl.Date),
-            pl.max("due date").cast(pl.Date),
+            pl.coalesce(pl.max("due date"), pl.max("date"))
+            .cast(pl.Date)
+            .alias("due date"),
             pl.first("client"),
             pl.sum("amount").alias("subtotal"),
             (
-                pl.sum(invoice_config["discount-column"])
+                pl.sum(invoice_config["discount-column"]).cast(
+                    pl.Decimal(None, decimals)
+                )
                 if "discount-column" in invoice_config
                 else pl.lit(None)
-            )
-            .cast(pl.Decimal(None, decimals))
-            .alias("discount"),
+            ).alias("discount"),
             pl.sum(*invoice_config.get("tax-columns", [])).cast(
                 pl.Decimal(None, decimals)
             )
@@ -392,13 +392,7 @@ def generate(config: Mapping[str, Any]) -> None:
         matched.extend(matched_payments)
         unmatched.extend(unmatched_invoices)
 
-    df_matched = pl.from_dicts(
-        matched,
-        schema={
-            "receipt": pl.Utf8,
-            "invoices": pl.List,
-        },
-    )
+    df_matched = pl.from_dicts(matched)
 
     df_unpaid_invoices = pl.from_dicts(
         unmatched, schema={"number": pl.Utf8, "balance": pl.Decimal}
@@ -524,6 +518,12 @@ def generate(config: Mapping[str, Any]) -> None:
             df_client_summaries = pl.DataFrame(
                 {
                     "client": [client for client in client_summaries.keys()],
+                    "client_display_name": [
+                        df_clients.filter(pl.col("name") == client)
+                        .select("display name")
+                        .item()
+                        for client in client_summaries.keys()
+                    ],
                     "invoice_count": [
                         summary[0] for summary in client_summaries.values()
                     ],
@@ -570,28 +570,24 @@ def generate(config: Mapping[str, Any]) -> None:
                 receipt_total,
                 opening_balance,
                 closing_balance,
-            ) = df_client_summaries.sum().drop("client").row(0)
+            ) = df_client_summaries.sum().drop("client", "client_display_name").row(0)
             # Compute periodic key figures
 
-            # Default start and end dates to last 6 months if not provided
+            # Default start and end dates to last 12 months if not provided
             if not end_date:
                 end_date = datetime.datetime.now().date()
             end_year, end_month = end_date.year, end_date.month
+            if end_month == 12:
+                expected_start_date = datetime.datetime(end_year, 1, 1).date()
+            else:
+                expected_start_date = datetime.datetime(
+                    end_year - 1, end_month + 1, 1
+                ).date()
+
             if not start_date:
-                if end_month < 6:
-                    start_date = datetime.datetime(
-                        end_year - 1, end_month + 7, 1
-                    ).date()
-                else:
-                    start_date = datetime.datetime(end_year, end_month - 5, 1).date()
+                start_date = expected_start_date
             else:
                 # If the start date is more than a year before the end date, adjust it
-                if end_month == 12:
-                    expected_start_date = datetime.datetime(end_year, 1, 1).date()
-                else:
-                    expected_start_date = datetime.datetime(
-                        end_year - 1, end_month + 1, 1
-                    ).date()
 
                 if start_date < expected_start_date:
                     logger.warning(
@@ -617,11 +613,11 @@ def generate(config: Mapping[str, Any]) -> None:
             df_invoice_monthly = (
                 df_invoices_close.sort("sort_date")
                 .group_by_dynamic("sort_date", every="1mo", group_by="client")
-                .agg(pl.col("total").sum())
+                .agg(pl.col("total").sum(), pl.first("client_display_name"))
                 .join(
                     df_date_client_range,
                     on=["sort_date", "client"],
-                    how="right",
+                    how="full",
                     coalesce=True,
                 )
                 .fill_null(0)
@@ -630,11 +626,11 @@ def generate(config: Mapping[str, Any]) -> None:
             df_receipts_monthly = (
                 df_receipts_close.sort("sort_date")
                 .group_by_dynamic("sort_date", every="1mo", group_by="client")
-                .agg(pl.col("amount").sum())
+                .agg(pl.col("amount").sum(), pl.first("client_display_name"))
                 .join(
                     df_date_client_range,
                     on=["sort_date", "client"],
-                    how="right",
+                    how="full",
                     coalesce=True,
                 )
                 .fill_null(0)
@@ -642,10 +638,18 @@ def generate(config: Mapping[str, Any]) -> None:
 
             df_balance = (
                 df_invoice_monthly.join(
-                    df_receipts_monthly, on=["client", "sort_date"], coalesce=True
+                    df_receipts_monthly,
+                    on=["client", "sort_date"],
+                    coalesce=True,
+                    how="full",
                 )
+                .fill_null(0)
+                .sort("sort_date")
                 .select(
                     "client",
+                    pl.coalesce(
+                        "client_display_name", "client_display_name_right"
+                    ).alias("client_display_name"),
                     "sort_date",
                     pl.col("total").alias("invoiced"),
                     pl.col("amount").alias("received"),
@@ -657,8 +661,10 @@ def generate(config: Mapping[str, Any]) -> None:
                 .with_columns(
                     open=pl.col("balance").shift(1, fill_value=0).over("client"),
                 )
+                .filter(pl.col("sort_date").is_between(start_date, end_date))
                 .select(
                     "client",
+                    "client_display_name",
                     "sort_date",
                     "open",
                     "invoiced",
@@ -668,7 +674,7 @@ def generate(config: Mapping[str, Any]) -> None:
             )
 
             df_balance_aggregated = (
-                df_balance.drop("client")
+                df_balance.drop("client", "client_display_name")
                 .group_by("sort_date")
                 .agg(pl.all().sum())
                 .with_columns(
