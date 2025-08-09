@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def load_config() -> Mapping[str, Any]:
     """Load configuration from a TOML file."""
     try:
-        with open("config.toml", "rb") as f:
+        with open("sample.config.toml", "rb") as f:
             config = tomllib.load(f)
             logger.info("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
