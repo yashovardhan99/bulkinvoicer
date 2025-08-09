@@ -3,7 +3,6 @@
 from collections.abc import Mapping
 import datetime
 from decimal import Decimal
-import logging.config
 from pathlib import Path
 import tomllib
 import logging
@@ -75,15 +74,13 @@ def generate_invoice(
 
     pdf.set_font(pdf.regular_font.family, size=10)
     with pdf.table(
-        text_align=("LEFT", "CENTER", "CENTER", "RIGHT"),
-        borders_layout="NONE",
+        text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT"),
+        borders_layout="MINIMAL",
         padding=2,
         headings_style=headings_style,
+        col_widths=(7, 3, 2, 4),
     ) as table:
-        header_row = table.row()
-        for item in header:
-            header_row.cell(item)
-
+        table.row(header)
         for invoice_row in invoice_items:
             row = table.row()
             for item in invoice_row:
@@ -178,9 +175,10 @@ def generate_receipt(
 
     with pdf.table(
         text_align=("LEFT", "RIGHT"),
-        borders_layout="NONE",
+        borders_layout="MINIMAL",
         padding=2,
         headings_style=headings_style,
+        col_widths=(3, 1),
     ) as table:
         header_row = table.row()
         header_row.cell("Description".upper())
@@ -200,6 +198,8 @@ def generate_receipt(
                 format_currency(invoice.get("amount", Decimal()), currency),
                 style=pdf.numbers_font,
             )
+
+        table.row()
 
         total_row = table.row(style=headings_style)
         total_row.cell("Total".upper(), align="RIGHT")
@@ -313,7 +313,8 @@ def generate(config: Mapping[str, Any]) -> None:
             pl.col("date").alias("sort_date"),
             pl.col("date").dt.to_string(date_format).alias("date"),
             pl.col("due date").dt.to_string(date_format).alias("due date"),
-            pl.coalesce("client", "display name").alias("client"),
+            pl.col("client"),
+            pl.coalesce("display name", "client").alias("client_display_name"),
             pl.col("address").alias("client_address"),
             pl.col("phone").alias("client_phone"),
             pl.col("email").alias("client_email"),
@@ -360,7 +361,8 @@ def generate(config: Mapping[str, Any]) -> None:
             "number",
             pl.col("date").cast(pl.Date).alias("sort_date"),
             pl.col("date").cast(pl.Date).dt.to_string(date_format).alias("date"),
-            pl.coalesce("client", "display name").alias("client"),
+            pl.col("client"),
+            pl.coalesce("display name", "client").alias("client_display_name"),
             pl.col("address").alias("client_address"),
             pl.col("phone").alias("client_phone"),
             pl.col("email").alias("client_email"),
@@ -476,6 +478,15 @@ def generate(config: Mapping[str, Any]) -> None:
 
         reporting_period_text = None
         if start_date and end_date:
+            if start_date > end_date:
+                logger.error(
+                    f"Start date {start_date} is after end date {end_date}. "
+                    "Please check the configuration."
+                )
+                raise ValueError(
+                    f"Start date {start_date} cannot be after end date {end_date}."
+                )
+
             reporting_period_text = f"Period: {start_date.strftime(date_format)} - {end_date.strftime(date_format)}"
         elif start_date:
             reporting_period_text = (
@@ -491,21 +502,23 @@ def generate(config: Mapping[str, Any]) -> None:
 
         client_summaries: dict[str, tuple] = {}
 
-        if output_config.get("include-summary", False):
+        include_summary = output_config.get("include-summary", False)
+
+        if include_summary:
             for client in df_clients_close.iter_rows():
-                client_name = client[0]
-                logger.info(f"Generating summary data for client: {client_name}")
-                client_summaries[client_name] = get_key_figures(
+                client_id = client[0]
+                logger.info(f"Generating summary data for client: {client_id}")
+                client_summaries[client_id] = get_key_figures(
                     decimals,
-                    df_invoices_open.filter(pl.col("client") == client_name),
-                    df_receipts_open.filter(pl.col("client") == client_name),
-                    df_invoices_close.filter(pl.col("client") == client_name),
-                    df_receipts_close.filter(pl.col("client") == client_name),
+                    df_invoices_open.filter(pl.col("client") == client_id),
+                    df_receipts_open.filter(pl.col("client") == client_id),
+                    df_invoices_close.filter(pl.col("client") == client_id),
+                    df_receipts_close.filter(pl.col("client") == client_id),
                 )
 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        f"Client {client_name} summary: {client_summaries[client_name]}"
+                        f"Client {client_id} summary: {client_summaries[client_id]}"
                     )
 
             df_client_summaries = pl.DataFrame(
@@ -532,6 +545,8 @@ def generate(config: Mapping[str, Any]) -> None:
                 }
             )
 
+            logger.info("Summarizing every client data together.")
+
             df_status_breakdown = (
                 df_client_summaries.with_columns(
                     pl.when(pl.col("closing_balance") > 0)
@@ -548,61 +563,155 @@ def generate(config: Mapping[str, Any]) -> None:
                 )
             )
 
+            (
+                invoice_count,
+                receipt_count,
+                invoice_total,
+                receipt_total,
+                opening_balance,
+                closing_balance,
+            ) = df_client_summaries.sum().drop("client").row(0)
+            # Compute periodic key figures
+
+            # Default start and end dates to last 6 months if not provided
+            if not end_date:
+                end_date = datetime.datetime.now().date()
+            end_year, end_month = end_date.year, end_date.month
+            if not start_date:
+                if end_month < 6:
+                    start_date = datetime.datetime(
+                        end_year - 1, end_month + 7, 1
+                    ).date()
+                else:
+                    start_date = datetime.datetime(end_year, end_month - 5, 1).date()
+            else:
+                # If the start date is more than a year before the end date, adjust it
+                if end_month == 12:
+                    expected_start_date = datetime.datetime(end_year, 1, 1).date()
+                else:
+                    expected_start_date = datetime.datetime(
+                        end_year - 1, end_month + 1, 1
+                    ).date()
+
+                if start_date < expected_start_date:
+                    logger.warning(
+                        "The truncated date range is more than a year. "
+                        "Periodic summary will be limited to last 12 months."
+                    )
+                    start_date = expected_start_date
+
+            logger.info(f"Generating periodic summary from {start_date} to {end_date}.")
+
+            df_date_range = (
+                pl.date_range(start=start_date, end=end_date, interval="1d", eager=True)
+                .to_frame("sort_date")
+                .group_by_dynamic("sort_date", every="1mo", start_by="window")
+                .agg()
+            )
+
+            df_date_client_range = df_date_range.join(
+                df_clients_close,
+                how="cross",
+            )
+
+            df_invoice_monthly = (
+                df_invoices_close.sort("sort_date")
+                .group_by_dynamic("sort_date", every="1mo", group_by="client")
+                .agg(pl.col("total").sum())
+                .join(
+                    df_date_client_range,
+                    on=["sort_date", "client"],
+                    how="right",
+                    coalesce=True,
+                )
+                .fill_null(0)
+            )
+
+            df_receipts_monthly = (
+                df_receipts_close.sort("sort_date")
+                .group_by_dynamic("sort_date", every="1mo", group_by="client")
+                .agg(pl.col("amount").sum())
+                .join(
+                    df_date_client_range,
+                    on=["sort_date", "client"],
+                    how="right",
+                    coalesce=True,
+                )
+                .fill_null(0)
+            )
+
+            df_balance = (
+                df_invoice_monthly.join(
+                    df_receipts_monthly, on=["client", "sort_date"], coalesce=True
+                )
+                .select(
+                    "client",
+                    "sort_date",
+                    pl.col("total").alias("invoiced"),
+                    pl.col("amount").alias("received"),
+                    (pl.col("total") - pl.col("amount"))
+                    .cum_sum()
+                    .over("client")
+                    .alias("balance"),
+                )
+                .with_columns(
+                    open=pl.col("balance").shift(1, fill_value=0).over("client"),
+                )
+                .select(
+                    "client",
+                    "sort_date",
+                    "open",
+                    "invoiced",
+                    "received",
+                    "balance",
+                )
+            )
+
+            df_balance_aggregated = (
+                df_balance.drop("client")
+                .group_by("sort_date")
+                .agg(pl.all().sum())
+                .with_columns(
+                    pl.col("sort_date").dt.month_end().alias("close_date"),
+                )
+                .sort("sort_date")
+            )
+
+            summary_details = {
+                "period": reporting_period_text,
+                "generated": f"Generated: {datetime.datetime.now().strftime(date_format)}",
+                "key_figures": [
+                    (
+                        "Opening Balance: ",
+                        opening_balance,
+                        f"({'Due' if opening_balance > 0 else 'Overpaid'})"
+                        if opening_balance != 0
+                        else "",
+                    ),
+                    ("Total Invoiced: ", invoice_total, f"({invoice_count} invoices)"),
+                    ("Total Received: ", receipt_total, f"({receipt_count} receipts)"),
+                    (
+                        "Closing Balance: ",
+                        closing_balance,
+                        f"({'Due' if closing_balance > 0 else 'Overpaid'})"
+                        if closing_balance != 0
+                        else "",
+                    ),
+                ],
+                "status_breakdown": df_status_breakdown.to_dicts(),
+                "monthly_summary": df_balance_aggregated.to_dicts(),
+                "client_summaries": df_client_summaries.to_dicts(),
+            }
+
         if output_type == "combined":
             logger.info("Generating combined PDF for all invoices and receipts.")
 
-            pdf = PDF(
-                config=config, cover_page=output_config.get("include-summary", False)
-            )
+            pdf = PDF(config=config, cover_page=include_summary)
             pdf.set_title(key)
 
-            if output_config.get("include-summary", False):
-                (
-                    invoice_count,
-                    receipt_count,
-                    invoice_total,
-                    receipt_total,
-                    opening_balance,
-                    closing_balance,
-                ) = df_client_summaries.sum().drop("client").row(0)
+            if include_summary:
                 logger.info("Including summary in the combined PDF.")
-                pdf.add_combined_summary(
-                    {
-                        "period": reporting_period_text,
-                        "generated": f"Generated: {datetime.datetime.now().strftime(date_format)}",
-                        "key_figures": [
-                            (
-                                "Opening Balance: ",
-                                opening_balance,
-                                (
-                                    f"({'Due' if opening_balance > 0 else 'Overpaid'})"
-                                    if opening_balance != 0
-                                    else ""
-                                ),
-                            ),
-                            (
-                                "Total Invoiced: ",
-                                invoice_total,
-                                f"({invoice_count} invoices)",
-                            ),
-                            (
-                                "Total Received: ",
-                                receipt_total,
-                                f"({receipt_count} receipts)",
-                            ),
-                            (
-                                "Closing Balance: ",
-                                closing_balance,
-                                (
-                                    f"({'Due' if closing_balance > 0 else 'Overpaid'})"
-                                    if closing_balance != 0
-                                    else ""
-                                ),
-                            ),
-                        ],
-                        "status_breakdown": df_status_breakdown.to_dicts(),
-                    }
-                )
+                pdf.add_combined_summary(summary_details)
 
             for invoice_data in df_invoices_report.to_dicts():
                 generate_invoice(pdf, config, invoice_data)
@@ -617,10 +726,22 @@ def generate(config: Mapping[str, Any]) -> None:
             pdf.output(path)
 
         elif output_type == "individual":
+            if include_summary:
+                logger.info("Generating summary PDF")
+
+                pdf = PDF(config=config, cover_page=True)
+                pdf.set_title(f"{key} Overall Summary")
+
+                pdf.add_combined_summary(summary_details)
+
+                pdf.output(path.format(NUMBER="summary"))
+
             logger.info("Generating individual PDFs for each invoice and receipt.")
 
             for invoice_data in df_invoices_report.to_dicts():
-                pdf = PDF(config=config)
+                pdf = PDF(
+                    config=config,
+                )
                 pdf.set_title(f"{key} Invoice {invoice_data['number']}")
                 generate_invoice(pdf, config, invoice_data)
                 pdf.output(path.format(NUMBER=invoice_data["number"]))
@@ -636,34 +757,41 @@ def generate(config: Mapping[str, Any]) -> None:
             logger.info("Individual receipts generated successfully.")
 
         elif output_type == "clients":
+            if include_summary:
+                logger.info("Generating summary PDF")
+
+                pdf = PDF(config=config, cover_page=True)
+                pdf.set_title(f"{key} Overall Summary")
+
+                pdf.add_combined_summary(summary_details)
+
+                pdf.output(path.format(CLIENT="summary"))
+
             logger.info("Generating PDFs for each client.")
             for client in clients.iter_rows():
-                client_name = client[0]
-                logger.info(f"Generating PDF for client: {client_name}")
-                pdf = PDF(config=config)
-                pdf.set_title(f"{key} {client_name}")
+                client_id = client[0]
+                logger.info(f"Generating PDF for client: {client_id}")
+
+                pdf = PDF(config=config, cover_page=include_summary)
+                pdf.set_title(f"{key} {client_id}")
 
                 client_invoices = df_invoices_report.filter(
-                    pl.col("client") == client_name
+                    pl.col("client") == client_id
                 )
                 for invoice_data in client_invoices.to_dicts():
                     generate_invoice(pdf, config, invoice_data)
 
-                logger.info(
-                    f"Invoices for client {client_name} generated successfully."
-                )
+                logger.info(f"Invoices for client {client_id} generated successfully.")
 
                 client_receipts = df_receipts_report.filter(
-                    pl.col("client") == client_name
+                    pl.col("client") == client_id
                 )
                 for receipt_data in client_receipts.to_dicts():
                     generate_receipt(pdf, config, receipt_data)
 
-                logger.info(
-                    f"Receipts for client {client_name} generated successfully."
-                )
+                logger.info(f"Receipts for client {client_id} generated successfully.")
 
-                pdf.output(path.format(CLIENT=client_name))
+                pdf.output(path.format(CLIENT=client_id))
         else:
             logger.error(f"Unknown output type: {output_type}")
             raise ValueError(

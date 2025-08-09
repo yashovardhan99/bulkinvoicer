@@ -55,10 +55,6 @@ class PDF(FPDF):
 
     def header(self) -> None:
         """Define the header for the PDF."""
-        if self.cover_page and self.page_no() == 1:
-            logger.info("Skipping header for cover page.")
-            return
-
         self.set_font(self.header_font.family, size=16, style="B")
         self.cell(
             0,
@@ -81,7 +77,11 @@ class PDF(FPDF):
                 markdown=True,
             )
 
-        self.ln(20)
+        if self.cover_page and self.page_no() == 1:
+            logger.info("Leaving less header gap for cover page.")
+            self.ln(10)
+        else:
+            self.ln(20)
 
     def footer(self) -> None:
         """Define the footer for the PDF."""
@@ -164,7 +164,7 @@ class PDF(FPDF):
         section_start = self.get_y()
 
         self.print_client_details(
-            client_name=invoice_header["client"],
+            client_name=invoice_header["client_display_name"],
             client_address=invoice_header.get("client_address"),
             client_phone=invoice_header.get("client_phone"),
             client_email=invoice_header.get("client_email"),
@@ -190,7 +190,7 @@ class PDF(FPDF):
         section_start = self.get_y()
 
         self.print_client_details(
-            client_name=receipt_header["client"],
+            client_name=receipt_header["client_display_name"],
             client_address=receipt_header.get("client_address"),
             client_phone=receipt_header.get("client_phone"),
             client_email=receipt_header.get("client_email"),
@@ -439,7 +439,7 @@ class PDF(FPDF):
             )
 
             table_header_style = FontFace.combine(
-                self.regular_font,
+                self.header_font,
                 FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
             )
             self.set_font(self.regular_font.family, size=11)
@@ -462,6 +462,122 @@ class PDF(FPDF):
                         format_currency(status["amount"], currency),
                         style=self.numbers_font,
                     )
+        self.ln(10)
+
+        logger.info("Printing monthly summary.")
+        monthly_summary = details.get("monthly_summary", [])
+        if monthly_summary:
+            self.set_font(self.header_font.family, size=14, style="B")
+            self.cell(
+                0,
+                10,
+                text="Monthly Summary",
+                new_x="LMARGIN",
+                new_y="NEXT",
+                align="C",
+            )
+
+            table_header_style = FontFace.combine(
+                self.header_font,
+                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
+            )
+            self.set_font(self.regular_font.family, size=11)
+
+            with self.table(
+                text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"),
+                headings_style=table_header_style,
+                borders_layout="MINIMAL",
+                align="C",
+                padding=2,
+            ) as monthly_table:
+                monthly_table.row(
+                    (
+                        "Month",
+                        "Opening Balance",
+                        "Invoiced",
+                        "Received",
+                        "Closing Balance",
+                    )
+                )
+                for month in monthly_summary:
+                    row = monthly_table.row()
+                    row.cell(f"{month['sort_date'].strftime('%b %Y')}")
+                    row.cell(
+                        format_currency(month["open"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(month["invoiced"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(month["received"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(month["balance"], currency),
+                        style=self.numbers_font,
+                    )
+
+        self.ln(10)
+
+        logger.info("Printing client summaries.")
+        client_summaries = details.get("client_summaries", [])
+        if client_summaries:
+            self.set_font(self.header_font.family, size=14, style="B")
+            self.cell(
+                0,
+                10,
+                text="Client-wise Summary",
+                new_x="LMARGIN",
+                new_y="NEXT",
+                align="C",
+            )
+
+            table_header_style = FontFace.combine(
+                self.header_font,
+                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
+            )
+            self.set_font(self.regular_font.family, size=11)
+
+            with self.table(
+                text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"),
+                headings_style=table_header_style,
+                borders_layout="MINIMAL",
+                align="C",
+                padding=2,
+            ) as client_table:
+                client_table.row(
+                    (
+                        "Client",
+                        "Opening Balance",
+                        "Invoiced",
+                        "Received",
+                        "Closing Balance",
+                    )
+                )
+                for client in client_summaries:
+                    row = client_table.row()
+                    row.cell(client["client"])
+                    row.cell(
+                        format_currency(client["opening_balance"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(client["invoice_total"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(client["receipt_total"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(client["closing_balance"], currency),
+                        style=self.numbers_font,
+                    )
+
+        # End of summary
+        self.ln(20)
 
 
 def match_payments(
