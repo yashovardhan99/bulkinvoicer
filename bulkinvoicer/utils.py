@@ -3,6 +3,7 @@
 from decimal import Decimal
 import logging
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import qrcode
@@ -28,18 +29,20 @@ class PDF(FPDF):
 
         logger.info("Adding fonts.")
 
-        self.add_font("Noto Sans", "", "fonts/NotoSans-Regular.ttf")
-        self.add_font("Noto Sans", "B", "fonts/NotoSans-Bold.ttf")
-        self.add_font("Noto Sans", "I", "fonts/NotoSans-Italic.ttf")
-        self.add_font("Noto Sans", "BI", "fonts/NotoSans-BoldItalic.ttf")
+        fonts_folder = Path(__file__).parent.parent / "fonts"
 
-        self.add_font("Noto Sans Mono", "", "fonts/NotoSansMono-Regular.ttf")
-        self.add_font("Noto Sans Mono", "B", "fonts/NotoSansMono-Bold.ttf")
+        self.add_font("Noto Sans", "", fonts_folder / "NotoSans-Regular.ttf")
+        self.add_font("Noto Sans", "B", fonts_folder / "NotoSans-Bold.ttf")
+        self.add_font("Noto Sans", "I", fonts_folder / "NotoSans-Italic.ttf")
+        self.add_font("Noto Sans", "BI", fonts_folder / "NotoSans-BoldItalic.ttf")
 
-        self.add_font("Noto Serif", "", "fonts/NotoSerif-Regular.ttf")
-        self.add_font("Noto Serif", "B", "fonts/NotoSerif-Bold.ttf")
-        self.add_font("Noto Serif", "I", "fonts/NotoSerif-Italic.ttf")
-        self.add_font("Noto Serif", "BI", "fonts/NotoSerif-BoldItalic.ttf")
+        self.add_font("Noto Sans Mono", "", fonts_folder / "NotoSansMono-Regular.ttf")
+        self.add_font("Noto Sans Mono", "B", fonts_folder / "NotoSansMono-Bold.ttf")
+
+        self.add_font("Noto Serif", "", fonts_folder / "NotoSerif-Regular.ttf")
+        self.add_font("Noto Serif", "B", fonts_folder / "NotoSerif-Bold.ttf")
+        self.add_font("Noto Serif", "I", fonts_folder / "NotoSerif-Italic.ttf")
+        self.add_font("Noto Serif", "BI", fonts_folder / "NotoSerif-BoldItalic.ttf")
 
         self.header_font = FontFace(family="Noto Sans")
         self.regular_font = FontFace(family="Noto Serif")
