@@ -97,16 +97,26 @@ class PDF(FPDF):
         if "footer" in self.config and "text" in self.config["footer"]:
             self.set_font(self.regular_font.family, size=8)
             self.ln(10)
-            for line in self.config["footer"]["text"]:
-                self.cell(
-                    0,
-                    None,
-                    line.upper(),
-                    new_x="LMARGIN",
-                    new_y="NEXT",
-                    align="C",
-                    markdown=True,
-                )
+
+            self.multi_cell(
+                0,
+                None,
+                self.config["footer"]["text"],
+                new_x="LMARGIN",
+                new_y="NEXT",
+                align="C",
+                markdown=True,
+            )
+            # for line in self.config["footer"]["text"]:
+            #     self.cell(
+            #         0,
+            #         None,
+            #         line.upper(),
+            #         new_x="LMARGIN",
+            #         new_y="NEXT",
+            #         align="C",
+            #         markdown=True,
+            #     )
 
     def print_client_details(
         self,
@@ -114,11 +124,13 @@ class PDF(FPDF):
         client_address: str | None = None,
         client_phone: str | None = None,
         client_email: str | None = None,
+        font_size: int = 10,
+        width: float = 0,
     ):
         """Print the client's details in the PDF."""
-        self.set_font(self.regular_font.family, size=10)
+        self.set_font(self.regular_font.family, size=font_size)
         self.multi_cell(
-            0,
+            width,
             None,
             (
                 "**ISSUED TO:**"
@@ -350,6 +362,7 @@ class PDF(FPDF):
         headers: tuple[str, str, str, str, str],
         fill_color: str,
         currency: str,
+        toc_level: int = 0,
     ) -> None:
         """Print the monthly summary in the PDF."""
         logger.info("Printing monthly summary.")
@@ -358,6 +371,7 @@ class PDF(FPDF):
         if self.will_page_break(50):
             self.add_page(same=True)
 
+        self.start_section("Monthly Summary", level=toc_level)
         self.cell(
             0,
             10,
@@ -402,7 +416,9 @@ class PDF(FPDF):
                 )
 
     def print_key_figures(
-        self, key_figures: Iterable[tuple[str, Decimal, str]], currency: str
+        self,
+        key_figures: Iterable[tuple[str, Decimal, str]],
+        currency: str,
     ) -> None:
         """Print key figures in the PDF."""
         self.set_font(self.regular_font.family, size=12, style="B")
@@ -423,12 +439,15 @@ class PDF(FPDF):
             )
 
         with self.table(
-            first_row_as_headings=True,
             text_align="CENTER",
             align="C",
             padding=2,
             borders_layout="ALL",
             gutter_width=5,
+            headings_style=FontFace(
+                family=self.header_font.family,
+                fill_color=self.config.get("invoice", {}).get("style-color"),  # type: ignore[arg-type]
+            ),
         ) as key_figures_table:
             header_row = key_figures_table.row()
             values_row = key_figures_table.row(style=self.numbers_font)
@@ -444,9 +463,14 @@ class PDF(FPDF):
                 )
                 others_row.cell(extra[0] if extra else "", border=0)
 
-    def add_combined_summary(self, details: Mapping[str, Any]) -> None:
+    def add_combined_summary(
+        self, details: Mapping[str, Any], toc_level: int = 0
+    ) -> None:
         """Print a cover page with details."""
         self.add_page(format="A4")
+
+        if toc_level > 0:
+            self.start_section("Summary", level=toc_level - 1)
 
         fill_color = self.config.get("invoice", {}).get("style-color")
         currency = self.config.get("payment", {}).get("currency", "INR")
@@ -484,6 +508,8 @@ class PDF(FPDF):
 
         logger.info("Printing key figures section.")
 
+        self.start_section("Key Figures", level=toc_level)
+
         key_figures = details.get("key_figures", [])
         key_figures = filter(None, key_figures)
         self.print_key_figures(key_figures, currency)
@@ -492,12 +518,12 @@ class PDF(FPDF):
         status_breakdown = details.get("status_breakdown", [])
         if status_breakdown:
             logger.info("Printing status breakdown.")
-
             self.set_font(self.header_font.family, size=14, style="B")
 
             if self.will_page_break(50):
                 self.add_page(same=True)
 
+            self.start_section("Status Breakdown", level=toc_level)
             self.cell(
                 0,
                 10,
@@ -542,6 +568,7 @@ class PDF(FPDF):
             if self.will_page_break(50):
                 self.add_page(same=True)
 
+            self.start_section("Client-wise Summary", level=toc_level)
             self.cell(
                 0,
                 10,
@@ -608,12 +635,13 @@ class PDF(FPDF):
                 ),
                 fill_color,
                 currency,
+                toc_level=toc_level,
             )
 
         # End of summary
         self.ln(20)
 
-    def add_client_summary(self, **details: Any) -> None:
+    def add_client_summary(self, toc_level: int = 1, **details: Any) -> None:
         """Print a cover page with client summary details."""
         self.add_page(format="A4")
 
@@ -626,12 +654,29 @@ class PDF(FPDF):
         # Header section
         logger.info("Printing header section for client summary.")
 
+        start_y = self.get_y()
+
+        if toc_level > 0:
+            self.start_section("Account Statement", level=toc_level - 1)
+        self.print_client_details(
+            client_name=details["client_display_name"],
+            client_address=details.get("client_address"),
+            client_phone=details.get("client_phone"),
+            client_email=details.get("client_email"),
+            font_size=12,
+            width=50,
+        )
+
+        end_y = self.get_y()
+
+        self.set_xy(25, start_y)
+
         self.set_font(self.header_font.family, size=18, style="B")
         self.cell(
             0,
             12,
-            text=f"Account Statement: {details['client_display_name']}",
-            new_x="LMARGIN",
+            text="Account Statement",
+            new_x="LEFT",
             new_y="NEXT",
             align="C",
         )
@@ -642,7 +687,7 @@ class PDF(FPDF):
             self.cell(
                 0,
                 text=details["period"],
-                new_x="LMARGIN",
+                new_x="LEFT",
                 new_y="NEXT",
                 align="C",
             )
@@ -651,9 +696,16 @@ class PDF(FPDF):
         self.cell(
             0, text=details["generated"], new_x="LMARGIN", new_y="NEXT", align="C"
         )
+
+        if self.get_y() < end_y:
+            self.set_y(end_y)
+
         self.ln(10)
 
         logger.info("Printing key figures section.")
+
+        self.start_section("Key Figures", level=toc_level)
+
         key_figures = details.get("key_figures", [])
         key_figures = filter(None, key_figures)
         self.print_key_figures(key_figures, currency)
@@ -672,6 +724,7 @@ class PDF(FPDF):
                 ),
                 fill_color,
                 currency,
+                toc_level=toc_level,
             )
 
         self.ln(10)
@@ -683,6 +736,7 @@ class PDF(FPDF):
             if self.will_page_break(50):
                 self.add_page(same=True)
 
+            self.start_section("Transactions", level=toc_level)
             self.cell(
                 0,
                 10,
@@ -734,7 +788,7 @@ def match_payments(
         - matched_payments: List of receipts with matched invoices.
         - unmatched_invoices: List of invoices that were not fully paid.
     """
-    if not invoices or not receipts:
+    if not invoices and not receipts:
         logger.warning("No invoices or receipts to match.")
         return ([], [])
 
