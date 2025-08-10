@@ -432,6 +432,9 @@ class PDF(FPDF):
 
             self.set_font(self.header_font.family, size=14, style="B")
 
+            if self.will_page_break(50):
+                self.add_page(same=True)
+
             self.cell(
                 0,
                 10,
@@ -465,62 +468,6 @@ class PDF(FPDF):
                         format_currency(status["amount"], currency),
                         style=self.numbers_font,
                     )
-        self.ln(10)
-
-        logger.info("Printing monthly summary.")
-        monthly_summary = details.get("monthly_summary", [])
-        if monthly_summary:
-            self.set_font(self.header_font.family, size=14, style="B")
-            self.cell(
-                0,
-                10,
-                text="Monthly Summary",
-                new_x="LMARGIN",
-                new_y="NEXT",
-                align="C",
-            )
-
-            table_header_style = FontFace.combine(
-                self.header_font,
-                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
-            )
-            self.set_font(self.regular_font.family, size=11)
-
-            with self.table(
-                text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"),
-                headings_style=table_header_style,
-                borders_layout="MINIMAL",
-                align="C",
-                padding=2,
-            ) as monthly_table:
-                monthly_table.row(
-                    (
-                        "Month",
-                        "Opening Balance",
-                        "Invoiced",
-                        "Received",
-                        "Closing Balance",
-                    )
-                )
-                for month in monthly_summary:
-                    row = monthly_table.row()
-                    row.cell(f"{month['sort_date'].strftime('%b %Y')}")
-                    row.cell(
-                        format_currency(month["open"], currency),
-                        style=self.numbers_font,
-                    )
-                    row.cell(
-                        format_currency(month["invoiced"], currency),
-                        style=self.numbers_font,
-                    )
-                    row.cell(
-                        format_currency(month["received"], currency),
-                        style=self.numbers_font,
-                    )
-                    row.cell(
-                        format_currency(month["balance"], currency),
-                        style=self.numbers_font,
-                    )
 
         self.ln(10)
 
@@ -528,6 +475,10 @@ class PDF(FPDF):
         client_summaries = details.get("client_summaries", [])
         if client_summaries:
             self.set_font(self.header_font.family, size=14, style="B")
+
+            if self.will_page_break(50):
+                self.add_page(same=True)
+
             self.cell(
                 0,
                 10,
@@ -576,6 +527,67 @@ class PDF(FPDF):
                     )
                     row.cell(
                         format_currency(client["closing_balance"], currency),
+                        style=self.numbers_font,
+                    )
+
+        self.ln(10)
+
+        logger.info("Printing monthly summary.")
+        monthly_summary = details.get("monthly_summary", [])
+        if monthly_summary:
+            self.set_font(self.header_font.family, size=14, style="B")
+
+            if self.will_page_break(50):
+                self.add_page(same=True)
+
+            self.cell(
+                0,
+                10,
+                text="Monthly Summary",
+                new_x="LMARGIN",
+                new_y="NEXT",
+                align="C",
+            )
+
+            table_header_style = FontFace.combine(
+                self.header_font,
+                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
+            )
+            self.set_font(self.regular_font.family, size=11)
+
+            with self.table(
+                text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"),
+                headings_style=table_header_style,
+                borders_layout="MINIMAL",
+                align="C",
+                padding=2,
+            ) as monthly_table:
+                monthly_table.row(
+                    (
+                        "Month",
+                        "Opening Balance",
+                        "Invoiced",
+                        "Received",
+                        "Closing Balance",
+                    )
+                )
+                for month in monthly_summary:
+                    row = monthly_table.row()
+                    row.cell(f"{month['sort_date'].strftime('%b %Y')}")
+                    row.cell(
+                        format_currency(month["open"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(month["invoiced"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(month["received"], currency),
+                        style=self.numbers_font,
+                    )
+                    row.cell(
+                        format_currency(month["balance"], currency),
                         style=self.numbers_font,
                     )
 
