@@ -11,7 +11,7 @@ def main() -> None:
     """Entry point for the Bulkinvoicer application."""
     # Set up logging configuration
     debug = "--debug" in sys.argv
-    
+
     if debug:
         logging.basicConfig(level=logging.DEBUG)
         logger.setLevel(logging.DEBUG)

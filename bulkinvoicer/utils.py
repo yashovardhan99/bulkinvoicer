@@ -5,6 +5,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
+from collections.abc import Iterable
 
 import qrcode
 from fpdf import FPDF, FontFace
@@ -341,6 +342,116 @@ class PDF(FPDF):
                     markdown=True,
                 )
 
+    def print_monthly_summary(
+        self,
+        monthly_summary: Iterable[Mapping[str, Any]],
+        fill_color: str,
+        currency: str,
+    ) -> None:
+        """Print the monthly summary in the PDF."""
+        logger.info("Printing monthly summary.")
+        self.set_font(self.header_font.family, size=14, style="B")
+
+        if self.will_page_break(50):
+            self.add_page(same=True)
+
+        self.cell(
+            0,
+            10,
+            text="Monthly Summary",
+            new_x="LMARGIN",
+            new_y="NEXT",
+            align="C",
+        )
+
+        table_header_style = FontFace.combine(
+            self.header_font,
+            FontFace(size_pt=12, emphasis="B", fill_color=fill_color),  # type: ignore[arg-type]
+        )
+        self.set_font(self.regular_font.family, size=11)
+
+        with self.table(
+            text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"),
+            headings_style=table_header_style,
+            borders_layout="MINIMAL",
+            align="C",
+            padding=2,
+        ) as monthly_table:
+            monthly_table.row(
+                (
+                    "Month",
+                    "Opening Balance",
+                    "Invoiced",
+                    "Received",
+                    "Closing Balance",
+                )
+            )
+            for month in monthly_summary:
+                row = monthly_table.row()
+                row.cell(f"{month['sort_date'].strftime('%b %Y')}")
+                row.cell(
+                    format_currency(month["open"], currency),
+                    style=self.numbers_font,
+                )
+                row.cell(
+                    format_currency(month["invoiced"], currency),
+                    style=self.numbers_font,
+                )
+                row.cell(
+                    format_currency(month["received"], currency),
+                    style=self.numbers_font,
+                )
+                row.cell(
+                    format_currency(month["balance"], currency),
+                    style=self.numbers_font,
+                )
+
+    def print_key_figures(
+        self, key_figures: Iterable[tuple[str, Decimal, str]], currency: str
+    ) -> None:
+        """Print key figures in the PDF."""
+        self.set_font(self.regular_font.family, size=12, style="B")
+        h_space_label = 0.0
+        h_space_value = 0.0
+
+        key_figures = list(key_figures)  # Convert to list for multiple iterations
+
+        for label, value, *_ in key_figures:
+            h_space_label = max(h_space_label, self.get_string_width(label))
+            h_space_value = max(
+                h_space_value,
+                self.get_string_width(
+                    format_currency(value, currency)
+                    if isinstance(value, Decimal)
+                    else str(value)
+                ),
+            )
+
+        with self.table(
+            text_align=("LEFT", "RIGHT", "LEFT"),
+            first_row_as_headings=False,
+            padding=2,
+            align="C",
+            width=max(int(self.epw * 0.65), 125),
+            borders_layout="NONE",
+        ) as key_figures_table:
+            for label, value, *extra in key_figures:
+                row = key_figures_table.row()
+                row.cell(label)
+                row.cell(
+                    text=format_currency(value, currency)
+                    if isinstance(value, Decimal)
+                    else f"{value:,}",
+                    align="R",
+                    style=self.numbers_font,
+                )
+                row.cell(
+                    extra[0] if extra else "",
+                    style=FontFace.combine(
+                        self.regular_font, FontFace(size_pt=10, emphasis="")
+                    ),
+                )
+
     def add_combined_summary(self, details: Mapping[str, Any]) -> None:
         """Print a cover page with details."""
         self.add_page(format="A4")
@@ -383,47 +494,7 @@ class PDF(FPDF):
 
         key_figures = details.get("key_figures", [])
         key_figures = filter(None, key_figures)
-
-        self.set_font(self.regular_font.family, size=12, style="B")
-        h_space_label = 0.0
-        h_space_value = 0.0
-
-        for label, value, *_ in details.get("key_figures", []):
-            h_space_label = max(h_space_label, self.get_string_width(label))
-            h_space_value = max(
-                h_space_value,
-                self.get_string_width(
-                    format_currency(value, currency)
-                    if isinstance(value, Decimal)
-                    else str(value)
-                ),
-            )
-
-        with self.table(
-            text_align=("LEFT", "RIGHT", "LEFT"),
-            first_row_as_headings=False,
-            padding=2,
-            align="C",
-            width=max(int(self.epw * 0.65), 125),
-            borders_layout="NONE",
-        ) as key_figures_table:
-            for label, value, *extra in key_figures:
-                row = key_figures_table.row()
-                row.cell(label)
-                row.cell(
-                    text=format_currency(value, currency)
-                    if isinstance(value, Decimal)
-                    else f"{value:,}",
-                    align="R",
-                    style=self.numbers_font,
-                )
-                row.cell(
-                    extra[0] if extra else "",
-                    style=FontFace.combine(
-                        self.regular_font, FontFace(size_pt=10, emphasis="")
-                    ),
-                )
-
+        self.print_key_figures(key_figures, currency)
         self.ln(10)
 
         status_breakdown = details.get("status_breakdown", [])
@@ -446,7 +517,7 @@ class PDF(FPDF):
 
             table_header_style = FontFace.combine(
                 self.header_font,
-                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
+                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),  # type: ignore[arg-type]
             )
             self.set_font(self.regular_font.family, size=11)
 
@@ -490,7 +561,7 @@ class PDF(FPDF):
 
             table_header_style = FontFace.combine(
                 self.header_font,
-                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
+                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),  # type: ignore[arg-type]
             )
             self.set_font(self.regular_font.family, size=11)
 
@@ -532,18 +603,75 @@ class PDF(FPDF):
 
         self.ln(10)
 
-        logger.info("Printing monthly summary.")
         monthly_summary = details.get("monthly_summary", [])
         if monthly_summary:
-            self.set_font(self.header_font.family, size=14, style="B")
+            self.print_monthly_summary(monthly_summary, fill_color, currency)
 
+        # End of summary
+        self.ln(20)
+
+    def add_client_summary(self, **details: Any) -> None:
+        """Print a cover page with client summary details."""
+        self.add_page(format="A4")
+
+        fill_color = self.config.get("invoice", {}).get("style-color")
+        currency = self.config.get("payment", {}).get("currency", "INR")
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Details: {details}")
+
+        # Header section
+        logger.info("Printing header section for client summary.")
+
+        self.set_font(self.header_font.family, size=18, style="B")
+        self.cell(
+            0,
+            12,
+            text=f"Account Statement: {details['client_display_name']}",
+            new_x="LMARGIN",
+            new_y="NEXT",
+            align="C",
+        )
+        self.set_font(self.header_font.family, size=11)
+
+        if details.get("period"):
+            self.cell(
+                0,
+                text=details["period"],
+                new_x="LMARGIN",
+                new_y="NEXT",
+                align="C",
+            )
+
+        self.set_font(self.regular_font.family, size=10)
+        self.cell(
+            0, text=details["generated"], new_x="LMARGIN", new_y="NEXT", align="C"
+        )
+        self.ln(10)
+
+        logger.info("Printing key figures section.")
+        key_figures = details.get("key_figures", [])
+        key_figures = filter(None, key_figures)
+        self.print_key_figures(key_figures, currency)
+        self.ln(10)
+
+        monthly_summary = details.get("monthly_summary", [])
+        if monthly_summary:
+            self.print_monthly_summary(monthly_summary, fill_color, currency)
+
+        self.ln(10)
+
+        transactions = details.get("transactions", [])
+        if transactions:
+            logger.info("Printing transactions section.")
+            self.set_font(self.header_font.family, size=14, style="B")
             if self.will_page_break(50):
                 self.add_page(same=True)
 
             self.cell(
                 0,
                 10,
-                text="Monthly Summary",
+                text="Transactions",
                 new_x="LMARGIN",
                 new_y="NEXT",
                 align="C",
@@ -551,47 +679,34 @@ class PDF(FPDF):
 
             table_header_style = FontFace.combine(
                 self.header_font,
-                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),
+                FontFace(size_pt=12, emphasis="B", fill_color=fill_color),  # type: ignore[arg-type]
             )
             self.set_font(self.regular_font.family, size=11)
 
             with self.table(
-                text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT", "RIGHT"),
+                text_align=("LEFT", "CENTER", "CENTER", "RIGHT", "RIGHT"),
                 headings_style=table_header_style,
                 borders_layout="MINIMAL",
                 align="C",
                 padding=2,
-            ) as monthly_table:
-                monthly_table.row(
-                    (
-                        "Month",
-                        "Opening Balance",
-                        "Invoiced",
-                        "Received",
-                        "Closing Balance",
-                    )
+            ) as transactions_table:
+                transactions_table.row(
+                    ("Date", "Type", "Reference", "Amount", "Balance")
                 )
-                for month in monthly_summary:
-                    row = monthly_table.row()
-                    row.cell(f"{month['sort_date'].strftime('%b %Y')}")
+                for transaction in transactions:
+                    row = transactions_table.row()
+                    row.cell(transaction["date"], style=self.numbers_font)
+                    row.cell(transaction["type"])
+                    row.cell(transaction["reference"], style=self.numbers_font)
                     row.cell(
-                        format_currency(month["open"], currency),
+                        format_currency(transaction["amount"], currency),
                         style=self.numbers_font,
                     )
                     row.cell(
-                        format_currency(month["invoiced"], currency),
-                        style=self.numbers_font,
-                    )
-                    row.cell(
-                        format_currency(month["received"], currency),
-                        style=self.numbers_font,
-                    )
-                    row.cell(
-                        format_currency(month["balance"], currency),
+                        format_currency(transaction["balance"], currency),
                         style=self.numbers_font,
                     )
 
-        # End of summary
         self.ln(20)
 
 

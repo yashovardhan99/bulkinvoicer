@@ -782,6 +782,87 @@ def generate(config: Mapping[str, Any]) -> None:
                 pdf = PDF(config=config, cover_page=include_summary)
                 pdf.set_title(f"{key} {client_id}")
 
+                # Add client summary if available
+                if include_summary:
+                    client_summary = df_client_summaries.filter(
+                        pl.col("client") == client_id
+                    ).row(0, named=True)
+
+                    key_figures = [
+                        (
+                            "Opening Balance: ",
+                            client_summary["opening_balance"],
+                            f"({'Due' if client_summary['opening_balance'] > 0 else 'Advance'})"
+                            if client_summary["opening_balance"] != 0
+                            else "",
+                        ),
+                        (
+                            "Total Invoiced: ",
+                            client_summary["invoice_total"],
+                            f"({client_summary['invoice_count']} invoices)",
+                        ),
+                        (
+                            "Total Received: ",
+                            client_summary["receipt_total"],
+                            f"({client_summary['receipt_count']} receipts)",
+                        ),
+                        (
+                            "Closing Balance: ",
+                            client_summary["closing_balance"],
+                            f"({'Due' if client_summary['closing_balance'] > 0 else 'Advance'})"
+                            if client_summary["closing_balance"] != 0
+                            else "",
+                        ),
+                    ]
+
+                    df_balance_client = (
+                        df_balance.filter(pl.col("client") == client_id)
+                        .select(
+                            "sort_date",
+                            "open",
+                            "invoiced",
+                            "received",
+                            "balance",
+                        )
+                        .sort("sort_date")
+                    )
+
+                    df_invoices_close_client = df_invoices_close.filter(
+                        pl.col("client") == client_id
+                    ).select(
+                        "sort_date",
+                        pl.col("date"),
+                        pl.lit("Invoice").alias("type"),
+                        pl.col("number").alias("reference"),
+                        pl.col("total").alias("amount"),
+                    )
+
+                    df_receipts_close_client = df_receipts_close.filter(
+                        pl.col("client") == client_id
+                    ).select(
+                        "sort_date",
+                        pl.col("date"),
+                        pl.lit("Receipt").alias("type"),
+                        pl.col("number").alias("reference"),
+                        pl.col("amount").neg(),
+                    )
+
+                    df_transactions = (
+                        pl.concat([df_invoices_close_client, df_receipts_close_client])
+                        .sort("sort_date")
+                        .with_columns(pl.col("amount").cum_sum().alias("balance"))
+                    )
+
+                    pdf.add_client_summary(
+                        client=client_id,
+                        client_display_name=client_summary["client_display_name"],
+                        generated=f"Generated: {datetime.datetime.now().strftime(date_format)}",
+                        period=reporting_period_text,
+                        key_figures=key_figures,
+                        monthly_summary=df_balance_client.to_dicts(),
+                        transactions=df_transactions.to_dicts(),
+                    )
+
                 client_invoices = df_invoices_report.filter(
                     pl.col("client") == client_id
                 )
