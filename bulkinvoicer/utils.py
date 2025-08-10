@@ -4,6 +4,7 @@ from decimal import Decimal
 import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from tkinter.ttk import Style
 from typing import Any
 from collections.abc import Iterable
 
@@ -95,6 +96,7 @@ class PDF(FPDF):
 
         if "footer" in self.config and "text" in self.config["footer"]:
             self.set_font(self.regular_font.family, size=8)
+            self.ln(10)
             for line in self.config["footer"]["text"]:
                 self.cell(
                     0,
@@ -434,9 +436,15 @@ class PDF(FPDF):
             align="C",
             width=max(int(self.epw * 0.65), 125),
             borders_layout="NONE",
+            col_widths=(5, 4, 3),
         ) as key_figures_table:
             for label, value, *extra in key_figures:
-                row = key_figures_table.row()
+                if len(extra) > 1:
+                    row = key_figures_table.row(
+                        style=FontFace(fill_color=extra[1])  # type: ignore[arg-type]
+                    )
+                else:
+                    row = key_figures_table.row()
                 row.cell(label)
                 row.cell(
                     text=format_currency(value, currency)
@@ -632,6 +640,7 @@ class PDF(FPDF):
             new_y="NEXT",
             align="C",
         )
+
         self.set_font(self.header_font.family, size=11)
 
         if details.get("period"):

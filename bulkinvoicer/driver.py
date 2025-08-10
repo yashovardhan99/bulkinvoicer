@@ -807,11 +807,14 @@ def generate(config: Mapping[str, Any]) -> None:
                             f"({client_summary['receipt_count']} receipts)",
                         ),
                         (
-                            "Closing Balance: ",
+                            "Current Outstanding: ",
                             client_summary["closing_balance"],
                             f"({'Due' if client_summary['closing_balance'] > 0 else 'Advance'})"
                             if client_summary["closing_balance"] != 0
                             else "",
+                            "#ffcccc"
+                            if client_summary["closing_balance"] > 0
+                            else None,
                         ),
                     ]
 
@@ -851,6 +854,7 @@ def generate(config: Mapping[str, Any]) -> None:
                         pl.concat([df_invoices_close_client, df_receipts_close_client])
                         .sort("sort_date")
                         .with_columns(pl.col("amount").cum_sum().alias("balance"))
+                        .filter(pl.col("sort_date").is_between(start_date, end_date))
                     )
 
                     pdf.add_client_summary(
