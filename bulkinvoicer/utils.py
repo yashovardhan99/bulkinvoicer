@@ -228,7 +228,7 @@ class PDF(FPDF):
         self.set_y(max(self.get_y(), section_end))
         self.ln(20)
 
-    def get_upi_link(self, invoice_data: Mapping[str, Any]) -> str | None:
+    def get_upi_link(self, invoice_number: str, amount: Decimal) -> str | None:
         """Generate a UPI link from the configuration."""
         payment_config = self.config.get("payment", {})
         upi_config = payment_config.get("upi", {})
@@ -239,13 +239,12 @@ class PDF(FPDF):
             return None
 
         note = upi_config.get("transaction-note", "").replace(
-            "{INVOICE_NUMBER}", invoice_data.get("number", "")
+            "{INVOICE_NUMBER}", invoice_number
         )
         payee_name = upi_config.get(
             "payee_name", self.config.get("seller", {}).get("name", "")
         )
 
-        amount = invoice_data.get("total")
         currency = payment_config.get("currency", "INR")
 
         if amount is None or not upi_config.get("include-amount", False):
@@ -255,7 +254,7 @@ class PDF(FPDF):
             f"upi://pay?pa={upi_id}&pn={payee_name}&am={amount}&cu={currency}&tn={note}"
         )
 
-    def print_invoice_payment_details(self, invoice_data: Mapping[str, Any]):
+    def print_invoice_payment_details(self, invoice_number: str, amount: Decimal):
         """Print payment details in the PDF."""
         payment_config = self.config.get("payment", {})
         if not payment_config:
@@ -278,7 +277,7 @@ class PDF(FPDF):
 
         if "upi" in payment_config:
             upi_config: Mapping[str, Any] = payment_config["upi"]
-            upi_link = self.get_upi_link(invoice_data)
+            upi_link = self.get_upi_link(invoice_number, amount)
             if not upi_link:
                 logger.warning("UPI link could not be generated. Skipping UPI section.")
                 return
@@ -775,6 +774,14 @@ class PDF(FPDF):
                         format_currency(transaction["balance"], currency),
                         style=self.numbers_font,
                     )
+
+        if details["outstanding"] > 0:
+            self.ln(10)
+            self.start_section("Payment", level=toc_level)
+            self.print_invoice_payment_details(
+                f"Outstanding balance for {details['client_display_name']}",
+                details["outstanding"],
+            )
 
         self.ln(20)
 

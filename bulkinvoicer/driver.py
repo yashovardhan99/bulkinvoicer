@@ -155,7 +155,9 @@ def generate_invoice(
     pdf.ln(20)  # Line break for spacing
 
     section_start_y = pdf.get_y()
-    pdf.print_invoice_payment_details(invoice_data)
+    pdf.print_invoice_payment_details(
+        invoice_number=invoice_data["number"], amount=invoice_data["total"]
+    )
     section_end_y = pdf.get_y()
 
     pdf.set_y(section_start_y)
@@ -946,6 +948,7 @@ def generate(config: Mapping[str, Any]) -> None:
                         key_figures=key_figures,
                         monthly_summary=df_balance_client.to_dicts(),
                         transactions=df_transactions.to_dicts(),
+                        outstanding=client_summary["closing_balance"],
                         toc_level=1,
                     )
 
