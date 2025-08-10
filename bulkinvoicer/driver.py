@@ -11,16 +11,15 @@ from collections.abc import Sequence
 from fpdf import FontFace
 import polars as pl
 from bulkinvoicer.utils import PDF, format_currency, match_payments
-import sys
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
-def load_config() -> Mapping[str, Any]:
+def load_config(config_file: str) -> Mapping[str, Any]:
     """Load configuration from a TOML file."""
     try:
-        with open("config.toml", "rb") as f:
+        with open(config_file, "rb") as f:
             config = tomllib.load(f)
             logger.info("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
@@ -522,6 +521,8 @@ def generate(config: Mapping[str, Any]) -> None:
                         df_clients.filter(pl.col("name") == client)
                         .select("display name")
                         .item()
+                        if df_clients.filter(pl.col("name") == client).height > 0
+                        else client
                         for client in client_summaries.keys()
                     ],
                     "invoice_count": [
@@ -854,10 +855,10 @@ def get_key_figures(
     )
 
 
-def main() -> None:
+def main(config_file="config.toml") -> None:
     """Main function to run the BulkInvoicer."""
     try:
-        config = load_config()
+        config = load_config(config_file)
 
         # Validate file path for the Excel file
         if "excel" in config and "filepath" in config["excel"]:
@@ -870,13 +871,3 @@ def main() -> None:
     except Exception as e:
         logger.critical(f"An error occurred: {e}")
         raise
-
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--debug":
-        logging.basicConfig(level=logging.DEBUG)
-    elif len(sys.argv) > 1 and sys.argv[1] == "--info":
-        logging.basicConfig(level=logging.INFO)
-    else:
-        logging.basicConfig(level=logging.WARNING)
-    main()
