@@ -797,12 +797,12 @@ def generate(config: Mapping[str, Any]) -> None:
                             else "",
                         ),
                         (
-                            "Total Invoiced: ",
+                            "Total Billed: ",
                             client_summary["invoice_total"],
                             f"({client_summary['invoice_count']} invoices)",
                         ),
                         (
-                            "Total Received: ",
+                            "Total Paid: ",
                             client_summary["receipt_total"],
                             f"({client_summary['receipt_count']} receipts)",
                         ),
