@@ -15,28 +15,31 @@ def main() -> None:
 
     expected_logging_conf_path = pathlib.Path("logging.conf")
     bundled_logging_conf_path = pathlib.Path(__file__).parent.joinpath("logging.conf")
+    bundled_debug_conf_path = pathlib.Path(__file__).parent.joinpath(
+        "logging-debug.conf"
+    )
 
     debug = "--debug" in sys.argv
-    require_log_manual_setup = False
 
     if expected_logging_conf_path.exists():
         logging.config.fileConfig(expected_logging_conf_path)
         logger.info("Logging configuration loaded from logging.conf")
-    elif bundled_logging_conf_path.exists():
+    elif bundled_logging_conf_path.exists() and not debug:
         logging.config.fileConfig(bundled_logging_conf_path)
         logger.info("Logging configuration loaded from bundled logging.conf")
-    else:
-        require_log_manual_setup = True
-        logger.warning(
-            "No logging configuration file found. Default logging configuration will be used."
-        )
-
-    if debug:
+    elif bundled_debug_conf_path.exists() and debug:
+        logging.config.fileConfig(bundled_debug_conf_path)
+        logger.info("Logging configuration loaded from bundled logging-debug.conf")
+    elif debug:
         logging.basicConfig(level=logging.DEBUG)
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode is enabled. Logging level set to DEBUG.")
-    elif require_log_manual_setup:
+        logger.info(
+            "No logging configuration found, using basicConfig with DEBUG level"
+        )
+    else:
         logging.basicConfig(level=logging.WARNING)
+        logger.info(
+            "No logging configuration found, using basicConfig with WARNING level"
+        )
 
     # Get the config file path from command line arguments if provided
     config_file = "config.toml"
