@@ -4,7 +4,6 @@ from decimal import Decimal
 import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from tkinter.ttk import Style
 from typing import Any
 from collections.abc import Iterable
 
