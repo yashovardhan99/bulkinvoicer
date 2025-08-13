@@ -3,6 +3,8 @@
 import sys
 from bulkinvoicer.driver import main as bulkinvoicer_main
 import logging
+import pathlib
+import logging.config
 
 logger = logging.getLogger(__name__)
 
@@ -10,14 +12,30 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     """Entry point for the Bulkinvoicer application."""
     # Set up logging configuration
+
+    expected_logging_conf_path = pathlib.Path("logging.conf")
+    bundled_logging_conf_path = pathlib.Path(__file__).parent.joinpath("logging.conf")
+
     debug = "--debug" in sys.argv
 
-    if debug:
+    if expected_logging_conf_path.exists():
+        logging.config.fileConfig(expected_logging_conf_path)
+        logger.info("Logging configuration loaded from logging.conf")
+    elif bundled_logging_conf_path.exists():
+        logging.config.fileConfig(bundled_logging_conf_path)
+        logger.info("Logging configuration loaded from bundled logging.conf")
+    elif debug:
         logging.basicConfig(level=logging.DEBUG)
         logger.setLevel(logging.DEBUG)
+        logger.warning(
+            "No logging configuration file found. Using default logging configuration in debug mode."
+        )
         logger.debug("Debug mode is enabled.")
     else:
         logging.basicConfig(level=logging.WARNING)
+        logger.warning(
+            "No logging configuration file found. Using default logging configuration."
+        )
 
     # Get the config file path from command line arguments if provided
     config_file = "config.toml"
