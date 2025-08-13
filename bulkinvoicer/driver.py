@@ -730,7 +730,9 @@ def generate(config: Mapping[str, Any]) -> None:
             )
 
             df_client_summaries = df_client_summaries.with_columns(
-                pl.col("client_details").list.get(0).alias("client_display_name"),
+                pl.coalesce(
+                    pl.col("client_details").list.get(0), pl.col("client")
+                ).alias("client_display_name"),
                 pl.col("client_details").list.get(1).alias("client_address"),
                 pl.col("client_details").list.get(2).alias("client_phone"),
                 pl.col("client_details").list.get(3).alias("client_email"),
