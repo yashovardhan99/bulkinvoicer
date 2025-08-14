@@ -68,7 +68,7 @@ jobs:
           name: python-package-distributions
           path: dist/
       - name: Upload distribution 📦 to GitHub
-        run: gh release upload $TAG $FILE --clobber
+        run: gh release upload $TAG $FILE --clobber --repo yashovardhan99/bulkinvoicer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
