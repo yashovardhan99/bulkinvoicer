@@ -16,6 +16,18 @@ BulkInvoicer is a simple, offline-friendly CLI tool that helps freelancers and s
 
 ## 📦 Installation
 
+You can get BulkInvoicer from both [PyPi](https://pypi.org/project/bulkinvoicer/) and GitHub:
+
+### PyPi
+
+Just run:
+```bash
+pip install bulkinvoicer
+```
+
+### GitHub
+
+You can also get BulkInvoicer directly from GitHub:
 ```bash
 pip install git+https://github.com/yashovardhan99/bulkinvoicer.git#egg=bulkinvoicer
 ```
@@ -24,12 +36,12 @@ pip install git+https://github.com/yashovardhan99/bulkinvoicer.git#egg=bulkinvoi
 
 1. Prepare your invoice data in an Excel file (use the same format as given in `sample.xlsx`).
 2. Create a `config.toml` file to define your preferences.
-3. Run the command `incoiver` to generate invoices and summaries.
+3. Run the CLI command `incoiver` to generate invoices and summaries.
 
 Alternatively, you can run it directly using pipx:
 
 ```bash
-pipx run --spec git+https://github.com/yashovardhan99/bulkinvoicer.git invoicer
+pipx run bulkinvoicer
 ```
 
 You can find a sample `config.toml` file at [sample.config.toml](sample.config.toml)
