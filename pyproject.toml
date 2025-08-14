@@ -44,6 +44,10 @@ classifiers = [
 [project.optional-dependencies]
 
 [project.urls]
+Homepage = "http://github.com/yashovardhan99/bulkinvoicer"
+Repository = "https://github.com/yashovardhan99/bulkinvoicer.git"
+Issues = "http://github.com/yashovardhan99/bulkinvoicer/issues"
+funding = "https://github.com/yashovardhan99/bulkinvoicer"
 
 [project.scripts]
 invoicer = "bulkinvoicer.cli:main"
