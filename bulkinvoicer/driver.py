@@ -81,7 +81,7 @@ def generate_invoice(
     quantities: Sequence = invoice_data.get("qty", [])
     totals: Sequence = invoice_data.get("amount", [])
 
-    invoice_items = zip(descriptions, unit_prices, quantities, totals)
+    invoice_items = zip(descriptions, unit_prices, quantities, totals, strict=True)
 
     headings_style = FontFace.combine(
         pdf.header_font,
@@ -112,7 +112,7 @@ def generate_invoice(
                 row.cell(
                     value,
                     style=pdf.numbers_font
-                    if isinstance(item, (Decimal, int, float))
+                    if isinstance(item, Decimal | int | float)
                     else pdf.regular_font,
                 )
 
