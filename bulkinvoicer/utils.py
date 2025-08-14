@@ -127,16 +127,17 @@ class PDF(FPDF):
         width: float = 0,
     ):
         """Print the client's details in the PDF."""
+        new_line = "\n"
         self.set_font(self.regular_font.family, size=font_size)
         self.multi_cell(
             width,
             None,
             (
                 "**ISSUED TO:**"
-                f"\n{client_name}"
-                f"{'\n' + client_address if client_address else ''}"
-                f"{'\nPhone: ' + client_phone if client_phone else ''}"
-                f"{'\nEmail: ' + client_email if client_email else ''}"
+                f"{new_line}{client_name}"
+                f"{new_line + client_address if client_address else ''}"
+                f"{new_line + 'Phone: ' + client_phone if client_phone else ''}"
+                f"{new_line + 'Email: ' + client_email if client_email else ''}"
             ),
             align="L",
             markdown=True,
