@@ -30,7 +30,7 @@ class PDF(FPDF):
 
         logger.info("Adding fonts.")
 
-        fonts_folder = Path(__file__).parent.parent / "fonts"
+        fonts_folder = Path(__file__).parent / "fonts"
 
         self.add_font("Noto Sans", "", fonts_folder / "NotoSans-Regular.ttf")
         self.add_font("Noto Sans", "B", fonts_folder / "NotoSans-Bold.ttf")
