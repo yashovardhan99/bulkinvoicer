@@ -61,6 +61,8 @@ jobs:
     needs:
       - build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # to upload the distribution to the release
     steps:
       - name: Download all the dists
         uses: actions/download-artifact@v4
