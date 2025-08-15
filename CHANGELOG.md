@@ -10,11 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Start Changelog file for easy tracking.
+- Add validations for config.toml file (using pydantic)
 
 ### Changed
 
 - Update Readme to include Pypi release information.
-
+- Refactor usage of config from dictionary to class objects.
 
 ## [0.1.0.dev1]
 
