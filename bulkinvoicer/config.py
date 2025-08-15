@@ -180,7 +180,7 @@ class Config(BaseModel):
     payment: _PaymentConfig = _PaymentConfig()
     """Configuration for payment methods."""
 
-    footer: _FooterConfig
+    footer: _FooterConfig = _FooterConfig()
     """Configuration for the footer."""
 
     excel: _ExcelConfig
