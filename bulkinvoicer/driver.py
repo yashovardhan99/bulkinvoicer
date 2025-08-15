@@ -10,6 +10,7 @@ from typing import Any
 from collections.abc import Sequence
 from fpdf import FontFace
 import polars as pl
+from pydantic import ValidationError
 from bulkinvoicer.config import Config
 from bulkinvoicer.utils import PDF, format_currency, match_payments
 from tqdm import tqdm
@@ -28,13 +29,18 @@ def load_config(config_file: str) -> Mapping[str, Any]:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Config: {config}")
 
-            return Config.model_validate(config).model_dump(exclude_none=True, by_alias=True)
-        
+            return Config.model_validate(config).model_dump(
+                exclude_none=True, by_alias=True
+            )
+
     except FileNotFoundError:
-        logger.error("Configuration file not found.")
+        logger.exception("Configuration file not found.")
         raise
-    except tomllib.TOMLDecodeError as e:
-        logger.error(f"Error decoding TOML file: {e}")
+    except tomllib.TOMLDecodeError:
+        logger.exception("Error decoding TOML file")
+        raise
+    except ValidationError:
+        logger.exception("Configuration validation error.")
         raise
 
 
