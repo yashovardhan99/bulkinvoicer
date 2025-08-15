@@ -822,9 +822,7 @@ def generate(config: Config) -> None:
                     )
 
                     pdf = PDF(
-                        config=config.model_dump(
-                            mode="json", by_alias=True, exclude_unset=True
-                        ),
+                        config=config,
                         cover_page=include_summary,
                     )
                     pdf.set_title(key)
@@ -873,9 +871,7 @@ def generate(config: Config) -> None:
                         logger.info("Generating summary PDF")
 
                         pdf = PDF(
-                            config=config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            ),
+                            config=config,
                             cover_page=True,
                         )
                         pdf.set_title(f"{key} Overall Summary")
@@ -893,11 +889,7 @@ def generate(config: Config) -> None:
                         leave=False,
                         desc="Generating Invoices",
                     ):
-                        pdf = PDF(
-                            config=config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            )
-                        )
+                        pdf = PDF(config=config)
                         pdf.set_title(f"{key} Invoice {invoice_data['number']}")
                         generate_invoice(
                             pdf,
@@ -915,11 +907,7 @@ def generate(config: Config) -> None:
                         leave=False,
                         desc="Generating Receipts",
                     ):
-                        pdf = PDF(
-                            config=config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            )
-                        )
+                        pdf = PDF(config=config)
                         pdf.set_title(f"{key} Receipt {receipt_data['number']}")
                         generate_receipt(
                             pdf,
@@ -937,9 +925,7 @@ def generate(config: Config) -> None:
                         logger.info("Generating summary PDF")
 
                         pdf = PDF(
-                            config=config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            ),
+                            config=config,
                             cover_page=True,
                         )
                         pdf.set_title(f"{key} Overall Summary")
@@ -963,9 +949,7 @@ def generate(config: Config) -> None:
                             )
 
                             pdf = PDF(
-                                config=config.model_dump(
-                                    by_alias=True, exclude_unset=True
-                                ),
+                                config=config,
                                 cover_page=include_summary,
                             )
                             pdf.set_title(f"{key} {client_id}")

@@ -83,6 +83,9 @@ class _UPIConfig(BaseModel):
     )
     """UPI ID for receiving payments."""
 
+    payee_name: str | None = Field(default=None, max_length=50, alias="payee-name")
+    """Name of the payee for UPI payments."""
+
     include_amount: bool = Field(default=True, alias="include-amount")
     """Whether to include the amount in the UPI payment request."""
 
@@ -123,7 +126,10 @@ class _FooterConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    text: str
+    text: str | None = Field(
+        default=None,
+        alias="text",
+    )
     """Text to display in the footer, if any."""
 
 
@@ -168,7 +174,7 @@ class Config(BaseModel):
     receipt: _ReceiptConfig = _ReceiptConfig()
     """Configuration for receipts."""
 
-    signature: _SignatureConfig = _SignatureConfig()
+    signature: _SignatureConfig | None = None
     """Configuration for signatures."""
 
     payment: _PaymentConfig = _PaymentConfig()

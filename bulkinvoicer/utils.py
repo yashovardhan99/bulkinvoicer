@@ -10,6 +10,8 @@ from collections.abc import Iterable
 import qrcode
 from fpdf import FPDF, FontFace
 
+from bulkinvoicer.config import Config
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,11 +20,11 @@ class PDF(FPDF):
 
     def __init__(
         self,
+        config: Config,
         orientation="portrait",
         unit="mm",
         format="A4",
         font_cache_dir="DEPRECATED",
-        config: Mapping[str, Any] = {},
         cover_page: bool = False,
     ):
         """Initialize the PDF with optional configuration."""
@@ -52,7 +54,7 @@ class PDF(FPDF):
         self.set_text_shaping(True)
 
         self.config = config
-        self.set_author(config["seller"]["name"])
+        self.set_author(config.seller.name)
         self.set_creator("Bulkinvoicer")
         self.set_lang("en-IN")
         self.cover_page = cover_page
@@ -63,18 +65,18 @@ class PDF(FPDF):
         self.cell(
             0,
             None,
-            text=self.config["seller"]["name"].upper(),
+            text=self.config.seller.name.upper(),
             new_x="LMARGIN",
             new_y="NEXT",
             align="C",
             markdown=True,
         )
-        if "tagline" in self.config["seller"]:
+        if self.config.seller.tagline:
             self.set_font(self.header_font.family, size=8, style="I")
             self.cell(
                 0,
                 None,
-                text=self.config["seller"]["tagline"],
+                text=self.config.seller.tagline,
                 new_x="LMARGIN",
                 new_y="NEXT",
                 align="C",
@@ -93,29 +95,19 @@ class PDF(FPDF):
             logger.info("Skipping footer for cover page.")
             return
 
-        if "footer" in self.config and "text" in self.config["footer"]:
+        if self.config.footer.text:
             self.set_font(self.regular_font.family, size=8)
             self.ln(10)
 
             self.multi_cell(
                 0,
                 None,
-                self.config["footer"]["text"],
+                self.config.footer.text,
                 new_x="LMARGIN",
                 new_y="NEXT",
                 align="C",
                 markdown=True,
             )
-            # for line in self.config["footer"]["text"]:
-            #     self.cell(
-            #         0,
-            #         None,
-            #         line.upper(),
-            #         new_x="LMARGIN",
-            #         new_y="NEXT",
-            #         align="C",
-            #         markdown=True,
-            #     )
 
     def print_client_details(
         self,
@@ -230,24 +222,20 @@ class PDF(FPDF):
 
     def get_upi_link(self, invoice_number: str, amount: Decimal) -> str | None:
         """Generate a UPI link from the configuration."""
-        payment_config = self.config.get("payment", {})
-        upi_config = payment_config.get("upi", {})
+        upi_config = self.config.payment.upi
 
-        upi_id = upi_config.get("upi-id")
-        if not upi_id:
-            logger.warning("UPI ID is not configured. Skipping UPI link generation.")
+        if not upi_config:
+            logger.warning(
+                "UPI configuration is missing. Skipping UPI link generation."
+            )
             return None
 
-        note = upi_config.get("transaction-note", "").replace(
-            "{INVOICE_NUMBER}", invoice_number
-        )
-        payee_name = upi_config.get(
-            "payee_name", self.config.get("seller", {}).get("name", "")
-        )
+        upi_id = upi_config.upi_id
+        note = upi_config.transaction_note.format(INVOICE_NUMBER=invoice_number)
+        payee_name = upi_config.payee_name or self.config.seller.name
+        currency = self.config.payment.currency
 
-        currency = payment_config.get("currency", "INR")
-
-        if amount is None or not upi_config.get("include-amount", False):
+        if amount is None or not upi_config.include_amount:
             return f"upi://pay?pa={upi_id}&pn={payee_name}&cu={currency}&tn={note}"
 
         return (
@@ -256,27 +244,20 @@ class PDF(FPDF):
 
     def print_invoice_payment_details(self, invoice_number: str, amount: Decimal):
         """Print payment details in the PDF."""
-        payment_config = self.config.get("payment", {})
-        if not payment_config:
-            logger.warning(
-                "Payment configuration is missing. Skipping payment details."
-            )
-            return
-
+        payment_config = self.config.payment
         self.set_font(self.regular_font.family, size=10, style="B")
 
-        if "payment-methods-text" in payment_config:
+        if payment_config.payment_methods_text:
             self.cell(
                 0,
                 None,
-                payment_config.get("payment-methods-text").upper(),
+                payment_config.payment_methods_text.upper(),
                 new_x="LMARGIN",
                 new_y="NEXT",
                 align="L",
             )
 
-        if "upi" in payment_config:
-            upi_config: Mapping[str, Any] = payment_config["upi"]
+        if payment_config.upi:
             upi_link = self.get_upi_link(invoice_number, amount)
             if not upi_link:
                 logger.warning("UPI link could not be generated. Skipping UPI section.")
@@ -289,13 +270,13 @@ class PDF(FPDF):
                 img.get_image(),
                 w=30,
                 h=30,
-                link=upi_link if upi_config.get("include-link", False) else "",
+                link=upi_link if payment_config.upi.include_link else "",
             )
 
-            if "bottom-note" in payment_config.get("upi", {}):
+            if payment_config.upi.bottom_note:
                 self.cell(
                     0,
-                    text=payment_config["upi"]["bottom-note"],
+                    text=payment_config.upi.bottom_note,
                     new_x="LMARGIN",
                     new_y="NEXT",
                 )
@@ -326,29 +307,29 @@ class PDF(FPDF):
 
     def print_signature(self) -> None:
         """Print signature section in the PDF."""
-        if "signature" in self.config:
+        if self.config.signature:
             logger.info("Printing signature section.")
 
-            signature_config = self.config["signature"]
+            signature_config = self.config.signature
 
-            if "prefix" in signature_config:
+            if signature_config.prefix:
                 self.set_font(self.regular_font.family, size=10, style="B")
                 self.cell(
                     0,
                     None,
-                    signature_config["prefix"].upper(),
+                    signature_config.prefix.upper(),
                     new_x="LMARGIN",
                     new_y="NEXT",
                     align="R",
                 )
 
-            if "text" in signature_config:
+            if signature_config.text:
                 self.set_font(self.header_font.family, size=12, style="BU")
                 self.ln(10)
                 self.multi_cell(
                     0,
                     None,
-                    signature_config["text"].upper(),
+                    signature_config.text.upper(),
                     new_x="LMARGIN",
                     new_y="NEXT",
                     align="R",
@@ -445,7 +426,7 @@ class PDF(FPDF):
             gutter_width=5,
             headings_style=FontFace(
                 family=self.header_font.family,
-                fill_color=self.config.get("invoice", {}).get("style-color"),  # type: ignore[arg-type]
+                fill_color=self.config.invoice.style_color,  # type: ignore[arg-type]
             ),
         ) as key_figures_table:
             header_row = key_figures_table.row()
@@ -471,8 +452,8 @@ class PDF(FPDF):
         if toc_level > 0:
             self.start_section("Summary", level=toc_level - 1)
 
-        fill_color = self.config.get("invoice", {}).get("style-color")
-        currency = self.config.get("payment", {}).get("currency", "INR")
+        fill_color = self.config.invoice.style_color
+        currency = self.config.payment.currency
 
         # Header section
 
@@ -644,8 +625,8 @@ class PDF(FPDF):
         """Print a cover page with client summary details."""
         self.add_page(format="A4")
 
-        fill_color = self.config.get("invoice", {}).get("style-color")
-        currency = self.config.get("payment", {}).get("currency", "INR")
+        fill_color = self.config.invoice.style_color
+        currency = self.config.payment.currency
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Details: {details}")
