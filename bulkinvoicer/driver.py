@@ -34,13 +34,18 @@ def load_config(config_file: str) -> Mapping[str, Any]:
             )
 
     except FileNotFoundError:
-        logger.exception("Configuration file not found.")
+        logger.critical("Configuration file not found.")
         raise
     except tomllib.TOMLDecodeError:
-        logger.exception("Error decoding TOML file")
+        logger.critical("Error decoding TOML file")
         raise
-    except ValidationError:
-        logger.exception("Configuration validation error.")
+    except ValidationError as e:
+        logger.critical("Configuration validation failed.")
+        for error in e.errors():
+            loc = ".".join(str(x) for x in error["loc"])
+            logger.critical(
+                f"Error in field '{loc}': {error['msg']}. Provided input: {error['input']}"
+            )
         raise
 
 
@@ -1132,16 +1137,6 @@ def get_key_figures(
 
 def main(config_file="config.toml") -> None:
     """Main function to run the BulkInvoicer."""
-    try:
-        config = load_config(config_file)
-        # Validate file path for the Excel file
-        if "excel" in config and "filepath" in config["excel"]:
-            excel_filepath = config["excel"]["filepath"]
-            logger.info(f"Excel file path: {excel_filepath}")
-        else:
-            raise ValueError("Excel file path is not specified in the configuration.")
-
-        generate(config)
-    except Exception as e:
-        logger.critical(f"An error occurred: {e}")
-        raise
+    config = load_config(config_file)
+    logger.info("Configuration loaded successfully.")
+    generate(config)
