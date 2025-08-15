@@ -2,7 +2,7 @@
 
 import datetime
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, FilePath
+from pydantic import BaseModel, ConfigDict, Field, FilePath, field_validator
 
 
 class _SellerConfig(BaseModel):
@@ -182,3 +182,11 @@ class Config(BaseModel):
 
     output: dict[str, _OutputConfig]
     """Configuration for output formats."""
+
+    @field_validator("output", mode="after")
+    @classmethod
+    def validate_output(cls, v: dict[str, _OutputConfig]) -> dict[str, _OutputConfig]:
+        """Ensure that the output configuration contains at least one entry."""
+        if not v:
+            raise ValueError("At least one output configuration must be provided.")
+        return v
