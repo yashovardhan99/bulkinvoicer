@@ -187,7 +187,7 @@ def generate_invoice(
 
 def generate_receipt(
     pdf: PDF,
-    config: Mapping[str, Any],
+    config: Config,
     receipt_data: Mapping[str, Any],
     start_section: bool = False,
     create_toc_entry: bool = False,
@@ -195,7 +195,7 @@ def generate_receipt(
     """Generate a receipt PDF using the provided configuration."""
     logger.info("Generating receipt with the provided configuration.")
 
-    currency = config.get("payment", {}).get("currency", "INR")
+    currency = config.payment.currency
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Receipt data: {receipt_data}")
@@ -219,7 +219,8 @@ def generate_receipt(
     pdf.print_receipt_header(receipt_data)
 
     headings_style = FontFace(
-        emphasis="BOLD", fill_color=config.get("receipt", {}).get("style-color")
+        emphasis="BOLD",
+        fill_color=config.receipt.style_color,  # type: ignore[arg-type]
     )
 
     pdf.set_font(pdf.regular_font.family, size=10)
@@ -857,9 +858,7 @@ def generate(config: Config) -> None:
                     ):
                         generate_receipt(
                             pdf,
-                            config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            ),
+                            config,
                             receipt_data,
                             start_section=i == 0,
                             create_toc_entry=True,
@@ -924,9 +923,7 @@ def generate(config: Config) -> None:
                         pdf.set_title(f"{key} Receipt {receipt_data['number']}")
                         generate_receipt(
                             pdf,
-                            config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            ),
+                            config,
                             receipt_data,
                             start_section=False,
                             create_toc_entry=False,
@@ -1114,9 +1111,7 @@ def generate(config: Config) -> None:
                             ):
                                 generate_receipt(
                                     pdf,
-                                    config.model_dump(
-                                        mode="json", by_alias=True, exclude_unset=True
-                                    ),
+                                    config,
                                     receipt_data,
                                     start_section=i == 0,
                                     create_toc_entry=True,
