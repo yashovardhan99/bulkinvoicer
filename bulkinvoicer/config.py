@@ -35,7 +35,7 @@ class _InvoiceConfig(BaseModel):
     """Column name for discounts in the invoice, if applicable."""
 
     style_color: str = Field(
-        default="#000000",
+        default="#FFFFFF",
         alias="style-color",
         pattern=r"^#([A-Fa-f0-9]{8}|[A-Fa-f0-9]{4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$",
     )
@@ -54,7 +54,7 @@ class _ReceiptConfig(BaseModel):
     """Format for displaying dates in the receipt."""
 
     style_color: str = Field(
-        default="#000000",
+        default="#FFFFFF",
         alias="style-color",
         pattern=r"^#([A-Fa-f0-9]{8}|[A-Fa-f0-9]{4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$",
     )
