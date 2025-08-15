@@ -28,7 +28,7 @@ class _InvoiceConfig(BaseModel):
     date_format: str = Field(default="%Y-%m-%d", alias="date-format")
     """Format for displaying dates in the invoice."""
 
-    tax_columns: list[str] | None = Field(default=None, alias="tax-columns")
+    tax_columns: list[str] = Field(default=[], alias="tax-columns")
     """List of tax columns to include in the invoice, if any."""
 
     discount_column: str | None = Field(default=None, alias="discount-column")

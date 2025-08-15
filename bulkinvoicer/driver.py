@@ -20,7 +20,7 @@ from tqdm.contrib.logging import tqdm_logging_redirect
 logger = logging.getLogger(__name__)
 
 
-def load_config(config_file: str) -> Mapping[str, Any]:
+def load_config(config_file: str) -> Config:
     """Load configuration from a TOML file."""
     try:
         with open(config_file, "rb") as f:
@@ -29,9 +29,7 @@ def load_config(config_file: str) -> Mapping[str, Any]:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Config: {config}")
 
-            return Config.model_validate(config).model_dump(
-                exclude_none=True, by_alias=True
-            )
+            return Config.model_validate(config)
 
     except FileNotFoundError:
         logger.critical("Configuration file not found.")
@@ -275,37 +273,34 @@ def generate_receipt(
             break
 
 
-def generate(config: Mapping[str, Any]) -> None:
+def generate(config: Config) -> None:
     """Generate invoices and receipts based on provided configuration."""
-    logger.info("Generating invoices and receipts with the provided configuration.")
-    invoice_config = config.get("invoice", {})
-    receipt_config = config.get("receipt", {})
-
+    logger.info("Starting the generation process.")
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Invoice configuration: {invoice_config}")
-        logger.debug(f"Receipt configuration: {receipt_config}")
+        logger.debug("Configuration: %s", config)
 
-    output_formats: Mapping[str, Any] = config.get("output", {})
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Output formats: {output_formats}")
+    output_formats = config.model_dump(by_alias=True, exclude_unset=True)["output"]
 
     logger.info("Reading data from Excel files.")
 
-    date_format = invoice_config.get("date-format", "iso")
-    decimals = invoice_config.get("decimals", 2)
+    date_format_invoice = config.invoice.date_format
+    decimals_invoice = config.invoice.decimals
+
+    date_format_receipt = config.receipt.date_format
+    decimals_receipt = config.receipt.decimals
 
     df_invoice_data = pl.read_excel(
-        config["excel"]["filepath"],
+        config.excel.filepath,
         sheet_name="invoices",
     )
 
     df_receipt_data = pl.read_excel(
-        config["excel"]["filepath"],
+        config.excel.filepath,
         sheet_name="receipts",
     )
 
     df_clients = pl.read_excel(
-        config["excel"]["filepath"],
+        config.excel.filepath,
         sheet_name="clients",
         schema_overrides={
             "name": pl.String,
@@ -316,21 +311,22 @@ def generate(config: Mapping[str, Any]) -> None:
         },
     )
 
-    logger.info("Data loaded from Excel files.")
+    logger.info("Data loaded from Excel files. Starting data processing.")
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Invoice DataFrame: {df_invoice_data}")
-        logger.debug(f"Clients DataFrame: {df_clients}")
-        logger.debug(f"Receipt DataFrame: {df_receipt_data}")
+        logger.debug("Invoice DataFrame: %s", df_invoice_data)
+        logger.debug("Clients DataFrame: %s", df_clients)
+        logger.debug("Receipt DataFrame: %s", df_receipt_data)
 
-    logger.info("Starting data preperation.")
     df_invoices = (
         df_invoice_data.filter(pl.col("unit").is_not_null())
         .with_columns(
-            pl.col("unit").cast(pl.Decimal(None, decimals)),
+            pl.col("unit").cast(pl.Decimal(None, decimals_invoice)),
             pl.col("qty").cast(pl.UInt32()),
         )
         .with_columns(
-            amount=(pl.col("unit") * pl.col("qty")).cast(pl.Decimal(None, decimals)),
+            amount=(pl.col("unit") * pl.col("qty")).cast(
+                pl.Decimal(None, decimals_invoice)
+            ),
         )
         .group_by("number")
         .agg(
@@ -341,17 +337,15 @@ def generate(config: Mapping[str, Any]) -> None:
             pl.first("client"),
             pl.sum("amount").alias("subtotal"),
             (
-                pl.sum(invoice_config["discount-column"]).cast(
-                    pl.Decimal(None, decimals)
+                pl.sum(config.invoice.discount_column).cast(
+                    pl.Decimal(None, decimals_invoice)
                 )
-                if "discount-column" in invoice_config
+                if config.invoice.discount_column
                 else pl.lit(0)
             ).alias("discount"),
-            pl.sum(*invoice_config.get("tax-columns", [])).cast(
-                pl.Decimal(None, decimals)
-            )
-            if invoice_config.get("tax-columns", False)
-            else pl.lit(None),
+            pl.sum(*config.invoice.tax_columns).cast(pl.Decimal(None, decimals_invoice))
+            if config.invoice.tax_columns
+            else pl.lit(0).alias("tax-ignored"),
             pl.col("description", "unit", "qty", "amount"),
         )
         .join(
@@ -364,8 +358,8 @@ def generate(config: Mapping[str, Any]) -> None:
         .select(
             "number",
             pl.col("date").alias("sort_date"),
-            pl.col("date").dt.to_string(date_format).alias("date"),
-            pl.col("due date").dt.to_string(date_format).alias("due date"),
+            pl.col("date").dt.to_string(date_format_invoice).alias("date"),
+            pl.col("due date").dt.to_string(date_format_invoice).alias("due date"),
             pl.col("client"),
             pl.coalesce("display name", "client").alias("client_display_name"),
             pl.col("address").alias("client_address"),
@@ -377,14 +371,14 @@ def generate(config: Mapping[str, Any]) -> None:
             pl.col("amount"),
             pl.col("subtotal"),
             pl.col("discount"),
-            pl.col(*invoice_config.get("tax-columns", []))
-            if invoice_config.get("tax-columns", False)
-            else pl.lit(None).alias("tax-ignored"),
+            pl.col(*config.invoice.tax_columns)
+            if config.invoice.tax_columns
+            else pl.col("tax-ignored"),
             (
                 pl.sum_horizontal(
                     "subtotal",
                     pl.col("discount").neg(),
-                    *invoice_config.get("tax-columns", []),
+                    *config.invoice.tax_columns,
                 )
             ).alias("total"),
         )
@@ -395,13 +389,10 @@ def generate(config: Mapping[str, Any]) -> None:
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(f"Prepared Invoices DataFrame: {df_invoices}")
 
-    date_format = receipt_config.get("date-format", "iso")
-    decimals = receipt_config.get("decimals", 2)
-
     df_receipts = (
         df_receipt_data.filter(pl.col("date").is_not_null())
         .with_columns(
-            pl.col("amount").cast(pl.Decimal(None, decimals)),
+            pl.col("amount").cast(pl.Decimal(None, decimals_receipt)),
         )
         .join(
             df_clients,
@@ -413,13 +404,16 @@ def generate(config: Mapping[str, Any]) -> None:
         .select(
             "number",
             pl.col("date").cast(pl.Date).alias("sort_date"),
-            pl.col("date").cast(pl.Date).dt.to_string(date_format).alias("date"),
+            pl.col("date")
+            .cast(pl.Date)
+            .dt.to_string(date_format_receipt)
+            .alias("date"),
             pl.col("client"),
             pl.coalesce("display name", "client").alias("client_display_name"),
             pl.col("address").alias("client_address"),
             pl.col("phone").alias("client_phone"),
             pl.col("email").alias("client_email"),
-            pl.col("amount").cast(pl.Decimal(None, decimals)),
+            pl.col("amount").cast(pl.Decimal(None, decimals_receipt)),
             pl.col("payment mode"),
             pl.col("reference").cast(pl.Utf8),
         )
@@ -550,14 +544,14 @@ def generate(config: Mapping[str, Any]) -> None:
                         f"Start date {start_date} cannot be after end date {end_date}."
                     )
 
-                reporting_period_text = f"Period: {start_date.strftime(date_format)} - {end_date.strftime(date_format)}"
+                reporting_period_text = f"Period: {start_date.strftime(date_format_invoice)} - {end_date.strftime(date_format_invoice)}"
             elif start_date:
                 reporting_period_text = (
-                    f"Period: Starting {start_date.strftime(date_format)}"
+                    f"Period: Starting {start_date.strftime(date_format_invoice)}"
                 )
             elif end_date:
                 reporting_period_text = (
-                    f"Period: Ending {end_date.strftime(date_format)}"
+                    f"Period: Ending {end_date.strftime(date_format_invoice)}"
                 )
 
             # Get client wise total invoices, receipts, opening and closing balances
@@ -577,7 +571,7 @@ def generate(config: Mapping[str, Any]) -> None:
                     client_id = client[0]
                     logger.info(f"Generating summary data for client: {client_id}")
                     client_summaries[client_id] = get_key_figures(
-                        decimals,
+                        decimals_invoice,
                         df_invoices_open.filter(pl.col("client") == client_id),
                         df_receipts_open.filter(pl.col("client") == client_id),
                         df_invoices_close.filter(pl.col("client") == client_id),
@@ -775,7 +769,7 @@ def generate(config: Mapping[str, Any]) -> None:
 
                 summary_details = {
                     "period": reporting_period_text,
-                    "generated": f"Generated: {datetime.datetime.now().strftime(date_format)}",
+                    "generated": f"Generated: {datetime.datetime.now().strftime(date_format_invoice)}",
                     "key_figures": [
                         (
                             "Opening Balance",
@@ -810,7 +804,12 @@ def generate(config: Mapping[str, Any]) -> None:
             if output_type == "combined":
                 logger.info("Generating combined PDF for all invoices and receipts.")
 
-                pdf = PDF(config=config, cover_page=include_summary)
+                pdf = PDF(
+                    config=config.model_dump(
+                        mode="json", by_alias=True, exclude_unset=True
+                    ),
+                    cover_page=include_summary,
+                )
                 pdf.set_title(key)
 
                 if include_summary:
@@ -825,7 +824,9 @@ def generate(config: Mapping[str, Any]) -> None:
                 ):
                     generate_invoice(
                         pdf,
-                        config,
+                        config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        ),
                         invoice_data,
                         start_section=i == 0,
                         create_toc_entry=True,
@@ -842,7 +843,9 @@ def generate(config: Mapping[str, Any]) -> None:
                 ):
                     generate_receipt(
                         pdf,
-                        config,
+                        config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        ),
                         receipt_data,
                         start_section=i == 0,
                         create_toc_entry=True,
@@ -856,7 +859,12 @@ def generate(config: Mapping[str, Any]) -> None:
                 if include_summary:
                     logger.info("Generating summary PDF")
 
-                    pdf = PDF(config=config, cover_page=True)
+                    pdf = PDF(
+                        config=config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        ),
+                        cover_page=True,
+                    )
                     pdf.set_title(f"{key} Overall Summary")
 
                     pdf.add_combined_summary(summary_details, toc_level=0)
@@ -870,11 +878,17 @@ def generate(config: Mapping[str, Any]) -> None:
                     leave=False,
                     desc="Generating Invoices",
                 ):
-                    pdf = PDF(config=config)
+                    pdf = PDF(
+                        config=config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        )
+                    )
                     pdf.set_title(f"{key} Invoice {invoice_data['number']}")
                     generate_invoice(
                         pdf,
-                        config,
+                        config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        ),
                         invoice_data,
                         start_section=False,
                         create_toc_entry=False,
@@ -888,11 +902,17 @@ def generate(config: Mapping[str, Any]) -> None:
                     leave=False,
                     desc="Generating Receipts",
                 ):
-                    pdf = PDF(config=config)
+                    pdf = PDF(
+                        config=config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        )
+                    )
                     pdf.set_title(f"{key} Receipt {receipt_data['number']}")
                     generate_receipt(
                         pdf,
-                        config,
+                        config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        ),
                         receipt_data,
                         start_section=False,
                         create_toc_entry=False,
@@ -905,7 +925,12 @@ def generate(config: Mapping[str, Any]) -> None:
                 if include_summary:
                     logger.info("Generating summary PDF")
 
-                    pdf = PDF(config=config, cover_page=True)
+                    pdf = PDF(
+                        config=config.model_dump(
+                            mode="json", by_alias=True, exclude_unset=True
+                        ),
+                        cover_page=True,
+                    )
                     pdf.set_title(f"{key} Overall Summary")
 
                     pdf.add_combined_summary(summary_details, toc_level=0)
@@ -926,7 +951,10 @@ def generate(config: Mapping[str, Any]) -> None:
                             f"Generating PDF for client {client_id}"
                         )
 
-                        pdf = PDF(config=config, cover_page=include_summary)
+                        pdf = PDF(
+                            config=config.model_dump(by_alias=True, exclude_unset=True),
+                            cover_page=include_summary,
+                        )
                         pdf.set_title(f"{key} {client_id}")
 
                         # Add client summary if available
@@ -1027,7 +1055,7 @@ def generate(config: Mapping[str, Any]) -> None:
                                 client_address=client_summary["client_address"],
                                 client_phone=client_summary["client_phone"],
                                 client_email=client_summary["client_email"],
-                                generated=f"Generated: {datetime.datetime.now().strftime(date_format)}",
+                                generated=f"Generated: {datetime.datetime.now().strftime(date_format_invoice)}",
                                 period=reporting_period_text,
                                 key_figures=key_figures,
                                 monthly_summary=df_balance_client.to_dicts(),
@@ -1047,7 +1075,9 @@ def generate(config: Mapping[str, Any]) -> None:
                         ):
                             generate_invoice(
                                 pdf,
-                                config,
+                                config.model_dump(
+                                    mode="json", by_alias=True, exclude_unset=True
+                                ),
                                 invoice_data,
                                 start_section=i == 0,
                                 create_toc_entry=True,
@@ -1068,7 +1098,9 @@ def generate(config: Mapping[str, Any]) -> None:
                         ):
                             generate_receipt(
                                 pdf,
-                                config,
+                                config.model_dump(
+                                    mode="json", by_alias=True, exclude_unset=True
+                                ),
                                 receipt_data,
                                 start_section=i == 0,
                                 create_toc_entry=True,
