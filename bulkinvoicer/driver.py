@@ -10,6 +10,7 @@ from typing import Any
 from collections.abc import Sequence
 from fpdf import FontFace
 import polars as pl
+from bulkinvoicer.config import Config
 from bulkinvoicer.utils import PDF, format_currency, match_payments
 from tqdm import tqdm
 from tqdm.contrib.logging import tqdm_logging_redirect
@@ -26,7 +27,9 @@ def load_config(config_file: str) -> Mapping[str, Any]:
             logger.info("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Config: {config}")
-            return config
+
+            return Config.model_validate(config).model_dump(exclude_none=True, by_alias=True)
+        
     except FileNotFoundError:
         logger.error("Configuration file not found.")
         raise
@@ -494,7 +497,6 @@ def generate(config: Mapping[str, Any]) -> None:
             df_receipts_close = df_receipts_report.clone()
 
             if start_date:
-                start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
                 logger.info(
                     f"Filtering invoices and receipts from {start_date} onwards."
                 )
@@ -512,7 +514,6 @@ def generate(config: Mapping[str, Any]) -> None:
                 df_receipts_open = df_receipts_open.filter(False)
 
             if end_date:
-                end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
                 logger.info(f"Filtering invoices and receipts until {end_date}.")
                 df_invoices_report = df_invoices_report.filter(
                     pl.col("sort_date") <= end_date
@@ -1127,7 +1128,6 @@ def main(config_file="config.toml") -> None:
     """Main function to run the BulkInvoicer."""
     try:
         config = load_config(config_file)
-
         # Validate file path for the Excel file
         if "excel" in config and "filepath" in config["excel"]:
             excel_filepath = config["excel"]["filepath"]
