@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Update Readme to include Pypi release information.
-
+- Refactor usage of config from dictionary to class objects.
 
 ## [0.1.0.dev1]
 
