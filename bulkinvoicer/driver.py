@@ -49,7 +49,7 @@ def load_config(config_file: str) -> Config:
 
 def generate_invoice(
     pdf: PDF,
-    config: Mapping[str, Any],
+    config: Config,
     invoice_data: Mapping[str, Any],
     start_section: bool = False,
     create_toc_entry: bool = False,
@@ -57,7 +57,7 @@ def generate_invoice(
     """Generate an invoice PDF using the provided configuration."""
     logger.info("Generating invoice with the provided configuration.")
 
-    currency = config.get("payment", {}).get("currency", "INR")
+    currency = config.payment.currency
 
     pdf.add_page(format="A4")
 
@@ -99,7 +99,7 @@ def generate_invoice(
         pdf.header_font,
         FontFace(
             emphasis="BOLD",
-            fill_color=config.get("invoice", {}).get("style-color"),
+            fill_color=config.invoice.style_color,  # type: ignore[arg-type]
         ),
     )
 
@@ -130,7 +130,7 @@ def generate_invoice(
 
         table.row()
 
-        if config.get("invoice", {}).get("show-subtotal", True):
+        if config.invoice.show_subtotal:
             subtotal_row = table.row(style=FontFace(emphasis="BOLD"))
             subtotal_row.cell(
                 "Subtotal",
@@ -142,19 +142,19 @@ def generate_invoice(
                 style=pdf.numbers_font,
             )
 
-        if config.get("invoice", {}).get("discount-column", False):
+        if config.invoice.discount_column:
             discount_row = table.row()
             discount_row.cell("Discount", colspan=3, align="RIGHT")
             discount_row.cell(
-                format_currency(invoice_data.get("discount", Decimal()), currency),
+                format_currency(invoice_data["discount"], currency),
                 style=pdf.numbers_font,
             )
 
-        for tax_column in config.get("invoice", {}).get("tax-columns", []):
+        for tax_column in config.invoice.tax_columns:
             tax_row = table.row()
             tax_row.cell(tax_column.upper(), colspan=3, align="RIGHT", padding=(0, 2))
             tax_row.cell(
-                format_currency(invoice_data.get(tax_column, Decimal()), currency),
+                format_currency(invoice_data[tax_column], currency),
                 padding=(0, 2),
                 style=pdf.numbers_font,
             )
@@ -840,9 +840,7 @@ def generate(config: Config) -> None:
                     ):
                         generate_invoice(
                             pdf,
-                            config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            ),
+                            config,
                             invoice_data,
                             start_section=i == 0,
                             create_toc_entry=True,
@@ -904,9 +902,7 @@ def generate(config: Config) -> None:
                         pdf.set_title(f"{key} Invoice {invoice_data['number']}")
                         generate_invoice(
                             pdf,
-                            config.model_dump(
-                                mode="json", by_alias=True, exclude_unset=True
-                            ),
+                            config,
                             invoice_data,
                             start_section=False,
                             create_toc_entry=False,
@@ -1097,9 +1093,7 @@ def generate(config: Config) -> None:
                             ):
                                 generate_invoice(
                                     pdf,
-                                    config.model_dump(
-                                        mode="json", by_alias=True, exclude_unset=True
-                                    ),
+                                    config,
                                     invoice_data,
                                     start_section=i == 0,
                                     create_toc_entry=True,
