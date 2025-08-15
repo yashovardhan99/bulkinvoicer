@@ -46,13 +46,9 @@ pipx run bulkinvoicer
 
 You can find a sample `config.toml` file at [sample.config.toml](sample.config.toml)
 
-## 📄 Documentation
+## ⚒️ Changes
 
-Coming Soon!
-
-## ⚒️ Work in progress
-
-This project is a work in progress. The public API is still in development and unstable.
+All changes to this project are tracked in our [CHANGELOG](CHANGELOG.md). If you create a pull request, please include a summary of your changes in this file.
 
 ## 📜 License
 

@@ -47,8 +47,10 @@ classifiers = [
 [project.urls]
 Homepage = "http://github.com/yashovardhan99/bulkinvoicer"
 Repository = "https://github.com/yashovardhan99/bulkinvoicer.git"
+Changelog = "http://github.com/yashovardhan99/bulkinvoicer/blob/master/CHANGELOG.md"
 Issues = "http://github.com/yashovardhan99/bulkinvoicer/issues"
 funding = "https://github.com/yashovardhan99/bulkinvoicer"
+releasenotes = "https://github.com/yashovardhan99/bulkinvoicer/releases"
 
 [project.scripts]
 invoicer = "bulkinvoicer.cli:main"
