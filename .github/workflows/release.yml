@@ -13,6 +13,11 @@ on:
         description: "Branch to create the release from"
         required: true
         default: "main"
+      pre-release:
+        description: "Is this a pre-release?"
+        required: false
+        default: false
+        type: boolean
 jobs:
   tag-and-release:
     runs-on: ubuntu-latest
@@ -59,9 +64,17 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.version }}
         
-      - name: Create Release
+      - name: Create Regular release
         run: |
           gh release create $TAG --notes-from-tag
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.version }}
+        if: ${{ ! github.event.inputs.pre-release }}
+      - name: Create Pre-release
+        run: |
+          gh release create $TAG --notes-from-tag --prerelease
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.version }}
+        if: ${{ github.event.inputs.pre-release }}
