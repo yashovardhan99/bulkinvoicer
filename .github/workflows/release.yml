@@ -9,10 +9,6 @@ on:
       version:
         description: "Version tag for the release (e.g., v1.0.0)"
         required: true
-      branch:
-        description: "Branch to create the release from"
-        required: true
-        default: "main"
       pre-release:
         description: "Is this a pre-release?"
         required: false
@@ -21,18 +17,25 @@ on:
 jobs:
   tag-and-release:
     runs-on: ubuntu-latest
+    if: ${{ github.ref_type == 'branch' }}
     permissions:
       contents: write
     steps:
       - name: Log Inputs
         run: |
           echo "Version: ${{ github.event.inputs.version }}"
-          echo "Branch: ${{ github.event.inputs.branch }}"
+      
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.ACTIONS_BOT_APP_ID }}
+          private-key: ${{ secrets.ACTIONS_BOT_PRIVATE_KEY }}
 
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.head_ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,14 +49,14 @@ jobs:
 
       - name: Update Changelog
         run: |
-          python .github/scripts/update_changelog.py ${{ github.event.inputs.version }}
+          python .github/scripts/update_changelog.py $TAG
           git add CHANGELOG.md
           git commit -m "Update changelog for release $TAG"
           git push origin $BRANCH
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.version }}
-          BRANCH: ${{ github.event.inputs.branch }}
+          BRANCH: ${{ github.ref_name }}
 
       - name: Create Tag
         run: |
@@ -71,6 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.version }}
         if: ${{ ! github.event.inputs.pre-release }}
+      
       - name: Create Pre-release
         run: |
           gh release create $TAG --notes-from-tag --prerelease
