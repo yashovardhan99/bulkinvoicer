@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Unused python script for generating invoice PDF (`invoice.py`)
+
 ## [0.1.0a0]
 
 ### Added
