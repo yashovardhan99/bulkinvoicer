@@ -55,10 +55,10 @@ def main() -> None:
         bulkinvoicer_main(config_file)
     except Exception as e:
         if debug:
-            logger.exception(e)
+            logger.critical(e, exc_info=True)
         else:
-            logger.error("An error occurred while running Bulkinvoicer: %s", e)
-            logger.info("Run with --debug for more details.")
+            logger.critical("Bulkinvoicer encountered an error.")
+            logger.critical("Run with --debug for more details.")
         sys.exit(1)
 
     logger.info("Bulkinvoicer finished successfully.")
