@@ -34,22 +34,30 @@ class PDF(FPDF):
 
         fonts_folder = Path(__file__).parent / "fonts"
 
-        self.add_font("Noto Sans", "", fonts_folder / "NotoSans-Regular.ttf")
-        self.add_font("Noto Sans", "B", fonts_folder / "NotoSans-Bold.ttf")
-        self.add_font("Noto Sans", "I", fonts_folder / "NotoSans-Italic.ttf")
-        self.add_font("Noto Sans", "BI", fonts_folder / "NotoSans-BoldItalic.ttf")
+        self.add_font("NotoSans", "", fonts_folder / "NotoSans-Regular.ttf")
+        self.add_font("NotoSans", "B", fonts_folder / "NotoSans-Bold.subset.ttf")
+        self.add_font("NotoSans", "I", fonts_folder / "NotoSans-Italic.subset.ttf")
+        self.add_font("NotoSans", "BI", fonts_folder / "NotoSans-BoldItalic.subset.ttf")
 
-        self.add_font("Noto Sans Mono", "", fonts_folder / "NotoSansMono-Regular.ttf")
-        self.add_font("Noto Sans Mono", "B", fonts_folder / "NotoSansMono-Bold.ttf")
+        self.add_font(
+            "NotoSansMono", "", fonts_folder / "NotoSansMono-Regular.subset.ttf"
+        )
+        self.add_font(
+            "NotoSansMono", "B", fonts_folder / "NotoSansMono-Bold.subset.ttf"
+        )
 
-        self.add_font("Noto Serif", "", fonts_folder / "NotoSerif-Regular.ttf")
-        self.add_font("Noto Serif", "B", fonts_folder / "NotoSerif-Bold.ttf")
-        self.add_font("Noto Serif", "I", fonts_folder / "NotoSerif-Italic.ttf")
-        self.add_font("Noto Serif", "BI", fonts_folder / "NotoSerif-BoldItalic.ttf")
+        self.add_font("NotoSerif", "", fonts_folder / "NotoSerif-Regular.subset.ttf")
+        self.add_font("NotoSerif", "B", fonts_folder / "NotoSerif-Bold.subset.ttf")
+        self.add_font("NotoSerif", "I", fonts_folder / "NotoSerif-Italic.subset.ttf")
+        self.add_font(
+            "NotoSerif", "BI", fonts_folder / "NotoSerif-BoldItalic.subset.ttf"
+        )
 
-        self.header_font = FontFace(family="Noto Sans")
-        self.regular_font = FontFace(family="Noto Serif")
-        self.numbers_font = FontFace(family="Noto Sans Mono")
+        self.set_fallback_fonts(["NotoSans"], exact_match=False)
+
+        self.header_font = FontFace(family="NotoSans")
+        self.regular_font = FontFace(family="NotoSerif")
+        self.numbers_font = FontFace(family="NotoSansMono")
 
         self.set_text_shaping(True)
 
