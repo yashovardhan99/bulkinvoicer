@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Changed
 
 - Update most fonts to subset to reduce distribution size.
@@ -39,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sample files and configuration.
 - README and other related files.
 
-[unreleased]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0a0...HEAD
+[unreleased]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0...HEAD
+[v0.1.0]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0a0...v0.1.0
 [v0.1.0a0]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0.dev1...v0.1.0a0
 [0.1.0.dev1]: https://github.com/yashovardhan99/bulkinvoicer/commits/v0.1.0.dev1
