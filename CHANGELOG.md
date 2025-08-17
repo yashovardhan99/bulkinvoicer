@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Update most fonts to subset to reduce distribution size.
 
+### Fixed
+
+- Add tag check to release workflow to prevent change with an existing tag.
+
 ### Removed
 
 - Unused python script for generating invoice PDF (`invoice.py`)
