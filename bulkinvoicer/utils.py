@@ -37,9 +37,7 @@ class PDF(FPDF):
         self.add_font("NotoSans", "", fonts_folder / "NotoSans-Regular.ttf")
         self.add_font("NotoSans", "B", fonts_folder / "NotoSans-Bold.subset.ttf")
         self.add_font("NotoSans", "I", fonts_folder / "NotoSans-Italic.subset.ttf")
-        self.add_font(
-            "NotoSans", "BI", fonts_folder / "NotoSans-BoldItalic.subset.ttf"
-        )
+        self.add_font("NotoSans", "BI", fonts_folder / "NotoSans-BoldItalic.subset.ttf")
 
         self.add_font(
             "NotoSansMono", "", fonts_folder / "NotoSansMono-Regular.subset.ttf"
