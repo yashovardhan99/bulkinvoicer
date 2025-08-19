@@ -7,7 +7,6 @@ from pathlib import Path
 import tomllib
 import logging
 from typing import Any
-from collections.abc import Sequence
 from fpdf import FontFace
 import polars as pl
 from pydantic import ValidationError
@@ -45,144 +44,6 @@ def load_config(config_file: str) -> Config:
                 f"Error in field '{loc}': {error['msg']}. Provided input: {error['input']}"
             )
         raise
-
-
-def generate_invoice(
-    pdf: PDF,
-    config: Config,
-    invoice_data: Mapping[str, Any],
-    start_section: bool = False,
-    create_toc_entry: bool = False,
-) -> None:
-    """Generate an invoice PDF using the provided configuration."""
-    logger.info("Generating invoice with the provided configuration.")
-
-    currency = config.payment.currency
-
-    pdf.add_page(format="A4")
-
-    y = pdf.get_y()
-    if start_section:
-        pdf.set_y(0)
-        pdf.start_section("Invoices", level=0)
-
-    if create_toc_entry:
-        pdf.set_y(0)
-        pdf.start_section(
-            f"Invoice {invoice_data.get('number')}",
-            level=1,
-        )
-
-    pdf.set_y(y)
-
-    pdf.print_invoice_header(invoice_data)
-
-    pdf.set_font(pdf.regular_font.family, size=10)
-
-    # Invoice Table
-
-    header = (
-        "Description".upper(),
-        "Unit Price".upper(),
-        "Qty".upper(),
-        "Total".upper(),
-    )
-
-    descriptions: Sequence[str] = invoice_data.get("description", [])
-    unit_prices: Sequence = invoice_data.get("unit", [])
-    quantities: Sequence = invoice_data.get("qty", [])
-    totals: Sequence = invoice_data.get("amount", [])
-
-    invoice_items = zip(descriptions, unit_prices, quantities, totals, strict=True)
-
-    headings_style = FontFace.combine(
-        pdf.header_font,
-        FontFace(
-            emphasis="BOLD",
-            fill_color=config.invoice.style_color,  # type: ignore[arg-type]
-        ),
-    )
-
-    pdf.set_font(pdf.regular_font.family, size=10)
-    with pdf.table(
-        text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT"),
-        borders_layout="MINIMAL",
-        padding=2,
-        headings_style=headings_style,
-        col_widths=(7, 3, 2, 4),
-    ) as table:
-        table.row(header)
-        for invoice_row in invoice_items:
-            row = table.row()
-            for item in invoice_row:
-                value = item
-                if type(value) is Decimal:
-                    value = format_currency(value, currency)
-                else:
-                    value = str(value)
-
-                row.cell(
-                    value,
-                    style=pdf.numbers_font
-                    if isinstance(item, Decimal | int | float)
-                    else pdf.regular_font,
-                )
-
-        table.row()
-
-        if config.invoice.show_subtotal:
-            subtotal_row = table.row(style=FontFace(emphasis="BOLD"))
-            subtotal_row.cell(
-                "Subtotal",
-                colspan=3,
-                align="LEFT",
-            )
-            subtotal_row.cell(
-                format_currency(invoice_data.get("subtotal", Decimal()), currency),
-                style=pdf.numbers_font,
-            )
-
-        if config.invoice.discount_column:
-            discount_row = table.row()
-            discount_row.cell("Discount", colspan=3, align="RIGHT")
-            discount_row.cell(
-                format_currency(invoice_data["discount"], currency),
-                style=pdf.numbers_font,
-            )
-
-        for tax_column in config.invoice.tax_columns:
-            tax_row = table.row()
-            tax_row.cell(tax_column.upper(), colspan=3, align="RIGHT", padding=(0, 2))
-            tax_row.cell(
-                format_currency(invoice_data[tax_column], currency),
-                padding=(0, 2),
-                style=pdf.numbers_font,
-            )
-
-        total_row = table.row(style=headings_style)
-        total_row.cell("Total".upper(), colspan=3, align="RIGHT")
-        total_row.cell(
-            format_currency(invoice_data.get("total", Decimal()), currency),
-            style=pdf.numbers_font,
-        )
-
-    pdf.ln(20)  # Line break for spacing
-
-    section_start_y = pdf.get_y()
-    pdf.print_invoice_payment_details(
-        invoice_number=invoice_data["number"], amount=invoice_data["total"]
-    )
-    section_end_y = pdf.get_y()
-
-    pdf.set_y(section_start_y)
-    pdf.print_signature()
-
-    pdf.set_y(max(pdf.get_y(), section_end_y))
-
-    for i in range(20, 1, -1):
-        if not pdf.will_page_break(i):
-            pdf.ln(i)
-            break
 
 
 def generate_receipt(
@@ -837,9 +698,7 @@ def generate(config: Config) -> None:
                         leave=False,
                         desc="Generating Invoices",
                     ):
-                        generate_invoice(
-                            pdf,
-                            config,
+                        pdf.generate_invoice(
                             invoice_data,
                             start_section=i == 0,
                             create_toc_entry=True,
@@ -891,9 +750,7 @@ def generate(config: Config) -> None:
                     ):
                         pdf = PDF(config=config)
                         pdf.set_title(f"{key} Invoice {invoice_data['number']}")
-                        generate_invoice(
-                            pdf,
-                            config,
+                        pdf.generate_invoice(
                             invoice_data,
                             start_section=False,
                             create_toc_entry=False,
@@ -1072,9 +929,7 @@ def generate(config: Config) -> None:
                                 leave=False,
                                 desc="Generating Client Invoices",
                             ):
-                                generate_invoice(
-                                    pdf,
-                                    config,
+                                pdf.generate_invoice(
                                     invoice_data,
                                     start_section=i == 0,
                                     create_toc_entry=True,

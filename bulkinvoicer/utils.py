@@ -774,6 +774,147 @@ class PDF(FPDF):
 
         self.ln(20)
 
+    def generate_invoice(
+        self,
+        invoice_data: Mapping[str, Any],
+        start_section: bool = False,
+        create_toc_entry: bool = False,
+    ) -> None:
+        """Generate an invoice PDF using the provided configuration."""
+        logger.info("Generating invoice with the provided configuration.")
+
+        config = self.config
+
+        currency = config.payment.currency
+
+        self.add_page(format="A4")
+
+        y = self.get_y()
+        if start_section:
+            self.set_y(0)
+            self.start_section("Invoices", level=0)
+
+        if create_toc_entry:
+            self.set_y(0)
+            self.start_section(
+                f"Invoice {invoice_data.get('number')}",
+                level=1,
+            )
+
+        self.set_y(y)
+
+        self.print_invoice_header(invoice_data)
+
+        self.set_font(self.regular_font.family, size=10)
+
+        # Invoice Table
+
+        header = (
+            "Description".upper(),
+            "Unit Price".upper(),
+            "Qty".upper(),
+            "Total".upper(),
+        )
+
+        descriptions: Sequence[str] = invoice_data.get("description", [])
+        unit_prices: Sequence = invoice_data.get("unit", [])
+        quantities: Sequence = invoice_data.get("qty", [])
+        totals: Sequence = invoice_data.get("amount", [])
+
+        invoice_items = zip(descriptions, unit_prices, quantities, totals, strict=True)
+
+        headings_style = FontFace.combine(
+            self.header_font,
+            FontFace(
+                emphasis="BOLD",
+                fill_color=config.invoice.style_color,  # type: ignore[arg-type]
+            ),
+        )
+
+        self.set_font(self.regular_font.family, size=10)
+        with self.table(
+            text_align=("LEFT", "RIGHT", "RIGHT", "RIGHT"),
+            borders_layout="MINIMAL",
+            padding=2,
+            headings_style=headings_style,
+            col_widths=(7, 3, 2, 4),
+            # Column widths for description, unit price, quantity, and total
+        ) as table:
+            table.row(header)
+            for invoice_row in invoice_items:
+                row = table.row()
+                for item in invoice_row:
+                    value = item
+                    if isinstance(value, Decimal):
+                        value = format_currency(value, currency)
+                    else:
+                        value = str(value)
+
+                    row.cell(
+                        value,
+                        style=self.numbers_font
+                        if isinstance(item, Decimal | int | float)
+                        else self.regular_font,
+                    )
+
+            table.row()
+
+            if config.invoice.show_subtotal:
+                subtotal_row = table.row(style=FontFace(emphasis="BOLD"))
+                subtotal_row.cell(
+                    "Subtotal",
+                    colspan=3,
+                    align="LEFT",
+                )
+                subtotal_row.cell(
+                    format_currency(invoice_data.get("subtotal", Decimal()), currency),
+                    style=self.numbers_font,
+                )
+
+            if config.invoice.discount_column:
+                discount_row = table.row()
+                discount_row.cell("Discount", colspan=3, align="RIGHT")
+                discount_row.cell(
+                    format_currency(invoice_data["discount"], currency),
+                    style=self.numbers_font,
+                )
+
+            for tax_column in config.invoice.tax_columns:
+                tax_row = table.row()
+                tax_row.cell(
+                    tax_column.upper(), colspan=3, align="RIGHT", padding=(0, 2)
+                )
+                tax_row.cell(
+                    format_currency(invoice_data[tax_column], currency),
+                    padding=(0, 2),
+                    style=self.numbers_font,
+                )
+
+            total_row = table.row(style=headings_style)
+            total_row.cell("Total".upper(), colspan=3, align="RIGHT")
+            total_row.cell(
+                format_currency(invoice_data.get("total", Decimal()), currency),
+                style=self.numbers_font,
+            )
+
+        self.ln(20)  # Line break for spacing
+
+        section_start_y = self.get_y()
+        self.print_invoice_payment_details(
+            invoice_number=invoice_data["number"], amount=invoice_data["total"]
+        )
+        section_end_y = self.get_y()
+
+        self.set_y(section_start_y)
+        self.print_signature()
+
+        self.set_y(max(self.get_y(), section_end_y))
+
+        for i in range(20, 1, -1):
+            if not self.will_page_break(i):
+                self.ln(i)
+                break
+
 
 def match_payments(
     invoices: Sequence[Mapping[str, Any]], receipts: Sequence[Mapping[str, Any]]
