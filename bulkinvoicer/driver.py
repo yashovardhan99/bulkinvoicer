@@ -1,17 +1,14 @@
 """Driver module for BulkInvoicer."""
 
-from collections.abc import Mapping
 import datetime
-from decimal import Decimal
 from pathlib import Path
 import tomllib
 import logging
 from typing import Any
-from fpdf import FontFace
 import polars as pl
 from pydantic import ValidationError
 from bulkinvoicer.config import Config
-from bulkinvoicer.utils import PDF, format_currency, match_payments
+from bulkinvoicer.utils import PDF, match_payments
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
@@ -44,95 +41,6 @@ def load_config(config_file: str) -> Config:
                 f"Error in field '{loc}': {error['msg']}. Provided input: {error['input']}"
             )
         raise
-
-
-def generate_receipt(
-    pdf: PDF,
-    config: Config,
-    receipt_data: Mapping[str, Any],
-    start_section: bool = False,
-    create_toc_entry: bool = False,
-) -> None:
-    """Generate a receipt PDF using the provided configuration."""
-    logger.info("Generating receipt with the provided configuration.")
-
-    currency = config.payment.currency
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Receipt data: {receipt_data}")
-
-    pdf.add_page(format="A4")
-
-    y = pdf.get_y()
-    if start_section:
-        pdf.set_y(0)
-        pdf.start_section("Receipts", level=0)
-
-    if create_toc_entry:
-        pdf.set_y(0)
-        pdf.start_section(
-            f"Receipt {receipt_data.get('number')}",
-            level=1,
-        )
-
-    pdf.set_y(y)
-
-    pdf.print_receipt_header(receipt_data)
-
-    headings_style = FontFace(
-        emphasis="BOLD",
-        fill_color=config.receipt.style_color,  # type: ignore[arg-type]
-    )
-
-    pdf.set_font(pdf.regular_font.family, size=10)
-
-    with pdf.table(
-        text_align=("LEFT", "RIGHT"),
-        borders_layout="MINIMAL",
-        padding=2,
-        headings_style=headings_style,
-        col_widths=(3, 1),
-    ) as table:
-        table.row(("DESCRIPTION", "AMOUNT"))  # Header row
-
-        for invoice in receipt_data.get("invoices", []):
-            row = table.row()
-
-            invoice_number = invoice.get("invoice")
-            description = (
-                f"Payment for Invoice {invoice_number}"
-                if invoice_number
-                else "Advance Payment"
-            )
-            row.cell(description)
-            row.cell(
-                format_currency(invoice.get("amount", Decimal()), currency),
-                style=pdf.numbers_font,
-            )
-
-        table.row()
-
-        total_row = table.row(style=headings_style)
-        total_row.cell("Total".upper(), align="RIGHT")
-        total_row.cell(
-            format_currency(receipt_data.get("amount", Decimal()), currency),
-            style=pdf.numbers_font,
-        )
-
-    pdf.ln(20)
-
-    section_start_y = pdf.get_y()
-    pdf.print_receipt_payment_details(receipt_data)
-    section_end_y = pdf.get_y()
-    pdf.set_y(section_start_y)
-    pdf.print_signature()
-
-    pdf.set_y(max(pdf.get_y(), section_end_y))
-
-    for i in range(20, 1, -1):
-        if not pdf.will_page_break(i):
-            pdf.ln(i)
-            break
 
 
 def generate(config: Config) -> None:
@@ -713,9 +621,7 @@ def generate(config: Config) -> None:
                         leave=False,
                         desc="Generating Receipts",
                     ):
-                        generate_receipt(
-                            pdf,
-                            config,
+                        pdf.generate_receipt(
                             receipt_data,
                             start_section=i == 0,
                             create_toc_entry=True,
@@ -766,9 +672,7 @@ def generate(config: Config) -> None:
                     ):
                         pdf = PDF(config=config)
                         pdf.set_title(f"{key} Receipt {receipt_data['number']}")
-                        generate_receipt(
-                            pdf,
-                            config,
+                        pdf.generate_receipt(
                             receipt_data,
                             start_section=False,
                             create_toc_entry=False,
@@ -948,9 +852,7 @@ def generate(config: Config) -> None:
                                 leave=False,
                                 desc="Generating Client Receipts",
                             ):
-                                generate_receipt(
-                                    pdf,
-                                    config,
+                                pdf.generate_receipt(
                                     receipt_data,
                                     start_section=i == 0,
                                     create_toc_entry=True,

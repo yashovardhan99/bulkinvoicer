@@ -915,6 +915,94 @@ class PDF(FPDF):
                 self.ln(i)
                 break
 
+    def generate_receipt(
+        self,
+        receipt_data: Mapping[str, Any],
+        start_section: bool = False,
+        create_toc_entry: bool = False,
+    ) -> None:
+        """Generate a receipt PDF using the provided configuration."""
+        logger.info("Generating receipt with the provided configuration.")
+
+        config = self.config
+        currency = config.payment.currency
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Receipt data: {receipt_data}")
+
+        self.add_page(format="A4")
+
+        y = self.get_y()
+        if start_section:
+            self.set_y(0)
+            self.start_section("Receipts", level=0)
+
+        if create_toc_entry:
+            self.set_y(0)
+            self.start_section(
+                f"Receipt {receipt_data.get('number')}",
+                level=1,
+            )
+
+        self.set_y(y)
+
+        self.print_receipt_header(receipt_data)
+
+        headings_style = FontFace(
+            emphasis="BOLD",
+            fill_color=config.receipt.style_color,  # type: ignore[arg-type]
+        )
+
+        self.set_font(self.regular_font.family, size=10)
+
+        with self.table(
+            text_align=("LEFT", "RIGHT"),
+            borders_layout="MINIMAL",
+            padding=2,
+            headings_style=headings_style,
+            col_widths=(3, 1),
+        ) as table:
+            table.row(("DESCRIPTION", "AMOUNT"))  # Header row
+
+            for invoice in receipt_data.get("invoices", []):
+                row = table.row()
+
+                invoice_number = invoice.get("invoice")
+                description = (
+                    f"Payment for Invoice {invoice_number}"
+                    if invoice_number
+                    else "Advance Payment"
+                )
+                row.cell(description)
+                row.cell(
+                    format_currency(invoice.get("amount", Decimal()), currency),
+                    style=self.numbers_font,
+                )
+
+            table.row()
+
+            total_row = table.row(style=headings_style)
+            total_row.cell("Total".upper(), align="RIGHT")
+            total_row.cell(
+                format_currency(receipt_data.get("amount", Decimal()), currency),
+                style=self.numbers_font,
+            )
+
+        self.ln(20)
+
+        section_start_y = self.get_y()
+        self.print_receipt_payment_details(receipt_data)
+        section_end_y = self.get_y()
+        self.set_y(section_start_y)
+        self.print_signature()
+
+        self.set_y(max(self.get_y(), section_end_y))
+
+        for i in range(20, 1, -1):
+            if not self.will_page_break(i):
+                self.ln(i)
+                break
+
 
 def match_payments(
     invoices: Sequence[Mapping[str, Any]], receipts: Sequence[Mapping[str, Any]]
