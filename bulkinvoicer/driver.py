@@ -12,7 +12,7 @@ from bulkinvoicer.utils import match_payments
 from bulkinvoicer.pdf import PDF
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -651,39 +651,44 @@ def generate(config: Config) -> None:
                         "Generating individual PDFs for each invoice and receipt."
                     )
 
-                    with ThreadPoolExecutor() as executor:
-                        futures = [
-                            executor.submit(
-                                generate_invoice_pdf, config, path, invoice_data
-                            )
+                    with ProcessPoolExecutor() as executor:
+                        future_invoices = [
+                            executor.submit(generate_invoice_pdf, config, invoice_data)
                             for invoice_data in df_invoices_report.to_dicts()
                         ]
-                        for future in tqdm(
-                            as_completed(futures),
-                            total=len(futures),
-                            desc="Generating Invoices",
-                            leave=False,
-                        ):
-                            future.result()
-
-                    logger.info("Individual invoices generated successfully.")
-
-                    with ThreadPoolExecutor() as executor:
-                        futures = [
-                            executor.submit(
-                                generate_receipt_pdf, config, path, receipt_data
-                            )
+                        future_receipts = [
+                            executor.submit(generate_receipt_pdf, config, receipt_data)
                             for receipt_data in df_receipts_report.to_dicts()
                         ]
+
+                        pdf_results = []
                         for future in tqdm(
-                            as_completed(futures),
-                            total=len(futures),
-                            desc="Generating Receipts",
+                            as_completed(future_invoices + future_receipts),
+                            total=len(future_invoices) + len(future_receipts),
+                            desc="Generating Invoices and Receipts",
                             leave=False,
                         ):
-                            future.result()
+                            pdf_results.append(future.result())
 
-                    logger.info("Individual receipts generated successfully.")
+                    with ThreadPoolExecutor() as thread_executor:
+                        futures = [
+                            thread_executor.submit(
+                                write_pdf, path.format(NUMBER=number), pdfBytes
+                            )
+                            for number, pdfBytes in pdf_results
+                        ]
+
+                        for _ in tqdm(
+                            as_completed(futures),
+                            total=len(pdf_results),
+                            desc="Saving Invoices and Receipts",
+                            leave=False,
+                        ):
+                            pass
+
+                    logger.info(
+                        "Individual invoices and receipts generated successfully."
+                    )
 
                 elif output_type == "clients":
                     if include_summary:
@@ -874,7 +879,9 @@ def generate(config: Config) -> None:
                     )
 
 
-def generate_invoice_pdf(config: Config, path: str, invoice_data: dict[str, Any]):
+def generate_invoice_pdf(
+    config: Config, invoice_data: dict[str, Any]
+) -> tuple[str, bytearray]:
     """Generate a single invoice PDF."""
     pdf = PDF(config=config)
     pdf.set_title(f"Invoice {invoice_data['number']}")
@@ -883,10 +890,12 @@ def generate_invoice_pdf(config: Config, path: str, invoice_data: dict[str, Any]
         start_section=False,
         create_toc_entry=False,
     )
-    pdf.output(path.format(NUMBER=invoice_data["number"]))
+    return invoice_data["number"], pdf.output()
 
 
-def generate_receipt_pdf(config: Config, path: str, receipt_data: dict[str, Any]):
+def generate_receipt_pdf(
+    config: Config, receipt_data: dict[str, Any]
+) -> tuple[str, bytearray]:
     """Generate a single receipt PDF."""
     pdf = PDF(config=config)
     pdf.set_title(f"Receipt {receipt_data['number']}")
@@ -895,7 +904,13 @@ def generate_receipt_pdf(config: Config, path: str, receipt_data: dict[str, Any]
         start_section=False,
         create_toc_entry=False,
     )
-    pdf.output(path.format(NUMBER=receipt_data["number"]))
+    return receipt_data["number"], pdf.output()
+
+
+def write_pdf(path: str, pdfBytes: bytearray):
+    """Write PDF bytes to a file."""
+    with open(path, "wb") as f:
+        f.write(pdfBytes)
 
 
 def get_key_figures(
