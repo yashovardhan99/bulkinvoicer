@@ -12,6 +12,7 @@ from bulkinvoicer.utils import match_payments
 from bulkinvoicer.pdf import PDF
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -650,35 +651,37 @@ def generate(config: Config) -> None:
                         "Generating individual PDFs for each invoice and receipt."
                     )
 
-                    for invoice_data in tqdm(
-                        df_invoices_report.to_dicts(),
-                        leave=False,
-                        desc="Generating Invoices",
-                    ):
-                        pdf = PDF(config=config)
-                        pdf.set_title(f"{key} Invoice {invoice_data['number']}")
-                        pdf.generate_invoice(
-                            invoice_data,
-                            start_section=False,
-                            create_toc_entry=False,
-                        )
-                        pdf.output(path.format(NUMBER=invoice_data["number"]))
+                    with ThreadPoolExecutor() as executor:
+                        futures = [
+                            executor.submit(
+                                generate_invoice_pdf, config, path, invoice_data
+                            )
+                            for invoice_data in df_invoices_report.to_dicts()
+                        ]
+                        for future in tqdm(
+                            as_completed(futures),
+                            total=len(futures),
+                            desc="Generating Invoices",
+                            leave=False,
+                        ):
+                            future.result()
 
                     logger.info("Individual invoices generated successfully.")
 
-                    for receipt_data in tqdm(
-                        df_receipts_report.to_dicts(),
-                        leave=False,
-                        desc="Generating Receipts",
-                    ):
-                        pdf = PDF(config=config)
-                        pdf.set_title(f"{key} Receipt {receipt_data['number']}")
-                        pdf.generate_receipt(
-                            receipt_data,
-                            start_section=False,
-                            create_toc_entry=False,
-                        )
-                        pdf.output(path.format(NUMBER=receipt_data["number"]))
+                    with ThreadPoolExecutor() as executor:
+                        futures = [
+                            executor.submit(
+                                generate_receipt_pdf, config, path, receipt_data
+                            )
+                            for receipt_data in df_receipts_report.to_dicts()
+                        ]
+                        for future in tqdm(
+                            as_completed(futures),
+                            total=len(futures),
+                            desc="Generating Receipts",
+                            leave=False,
+                        ):
+                            future.result()
 
                     logger.info("Individual receipts generated successfully.")
 
@@ -869,6 +872,30 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def generate_invoice_pdf(config: Config, path: str, invoice_data: dict[str, Any]):
+    """Generate a single invoice PDF."""
+    pdf = PDF(config=config)
+    pdf.set_title(f"Invoice {invoice_data['number']}")
+    pdf.generate_invoice(
+        invoice_data,
+        start_section=False,
+        create_toc_entry=False,
+    )
+    pdf.output(path.format(NUMBER=invoice_data["number"]))
+
+
+def generate_receipt_pdf(config: Config, path: str, receipt_data: dict[str, Any]):
+    """Generate a single receipt PDF."""
+    pdf = PDF(config=config)
+    pdf.set_title(f"Receipt {receipt_data['number']}")
+    pdf.generate_receipt(
+        receipt_data,
+        start_section=False,
+        create_toc_entry=False,
+    )
+    pdf.output(path.format(NUMBER=receipt_data["number"]))
 
 
 def get_key_figures(
