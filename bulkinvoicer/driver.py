@@ -8,7 +8,8 @@ from typing import Any
 import polars as pl
 from pydantic import ValidationError
 from bulkinvoicer.config import Config
-from bulkinvoicer.utils import PDF, match_payments
+from bulkinvoicer.utils import match_payments
+from bulkinvoicer.pdf import PDF
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
