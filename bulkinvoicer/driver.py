@@ -661,30 +661,28 @@ def generate(config: Config) -> None:
                             for receipt_data in df_receipts_report.to_dicts()
                         ]
 
-                        pdf_results = []
-                        for future in tqdm(
-                            as_completed(future_invoices + future_receipts),
-                            total=len(future_invoices) + len(future_receipts),
-                            desc="Generating Invoices and Receipts",
-                            leave=False,
-                        ):
-                            pdf_results.append(future.result())
+                        with ThreadPoolExecutor() as thread_executor:
+                            futures = []
+                            for future in tqdm(
+                                as_completed(future_invoices + future_receipts),
+                                total=len(future_invoices) + len(future_receipts),
+                                desc="Generating Invoices and Receipts",
+                                leave=False,
+                            ):
+                                number, pdfbytes = future.result()
+                                futures.append(
+                                    thread_executor.submit(
+                                        write_pdf, path.format(NUMBER=number), pdfbytes
+                                    )
+                                )
 
-                    with ThreadPoolExecutor() as thread_executor:
-                        futures = [
-                            thread_executor.submit(
-                                write_pdf, path.format(NUMBER=number), pdfBytes
-                            )
-                            for number, pdfBytes in pdf_results
-                        ]
-
-                        for _ in tqdm(
-                            as_completed(futures),
-                            total=len(pdf_results),
-                            desc="Saving Invoices and Receipts",
-                            leave=False,
-                        ):
-                            pass
+                            for _ in tqdm(
+                                as_completed(futures),
+                                total=len(futures),
+                                desc="Saving Invoices and Receipts",
+                                leave=False,
+                            ):
+                                pass
 
                     logger.info(
                         "Individual invoices and receipts generated successfully."
