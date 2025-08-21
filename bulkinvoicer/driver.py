@@ -726,15 +726,15 @@ def generate(config: Config) -> None:
                                     ),
                                 ]
                             )
-                            .filter(
-                                pl.col("sort_date").is_between(start_date, end_date)
-                            )
                             .sort("sort_date")
                             .with_columns(
                                 pl.col("amount")
                                 .cum_sum()
                                 .over("client")
                                 .alias("balance")
+                            )
+                            .filter(
+                                pl.col("sort_date").is_between(start_date, end_date)
                             )
                         )
                     else:
@@ -895,12 +895,7 @@ def generate_client_pdf(
 
         logger.info(f"Client summary for {client_id} added to PDF.")
 
-    for i, invoice_data in tqdm(
-        enumerate(client_invoices),
-        total=len(client_invoices),
-        leave=False,
-        desc="Generating Client Invoices",
-    ):
+    for i, invoice_data in enumerate(client_invoices):
         pdf.generate_invoice(
             invoice_data,
             start_section=i == 0,
@@ -909,12 +904,7 @@ def generate_client_pdf(
 
     logger.info(f"Invoices for client {client_id} generated successfully.")
 
-    for i, receipt_data in tqdm(
-        enumerate(client_receipts),
-        total=len(client_receipts),
-        leave=False,
-        desc="Generating Client Receipts",
-    ):
+    for i, receipt_data in enumerate(client_receipts):
         pdf.generate_receipt(
             receipt_data,
             start_section=i == 0,

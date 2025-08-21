@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Add multiprocessing for individual PDF generation.
+- Add multiprocessing for client PDF generation.
 
 ## [0.1.0]
 
