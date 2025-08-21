@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add multiprocessing for individual PDF generation.
 - Add multiprocessing for client PDF generation.
+- Cache generated QR code to allow re-use.
 
 ## [0.1.0]
 

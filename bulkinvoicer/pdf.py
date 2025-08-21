@@ -7,11 +7,10 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Iterable
 
-import qrcode
 from fpdf import FPDF, FontFace
 
 from bulkinvoicer.config import Config
-from bulkinvoicer.utils import format_currency
+from bulkinvoicer.utils import format_currency, get_qrcode_image
 
 logger = logging.getLogger(__name__)
 
@@ -271,9 +270,7 @@ class PDF(FPDF):
             if not upi_link:
                 logger.warning("UPI link could not be generated. Skipping UPI section.")
                 return
-            qr = qrcode.QRCode()
-            qr.add_data(upi_link)
-            img = qr.make_image()
+            img = get_qrcode_image(upi_link)
 
             self.image(
                 img.get_image(),
