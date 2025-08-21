@@ -586,6 +586,9 @@ def generate(config: Config) -> None:
                         "monthly_summary": df_balance_aggregated.to_dicts(),
                         "client_summaries": df_client_summaries.to_dicts(),
                     }
+                else:
+                    df_client_summaries = None
+                    df_balance = None
 
                 if output_type == "combined":
                     logger.info(
@@ -702,179 +705,225 @@ def generate(config: Config) -> None:
 
                         pdf.output(path.format(CLIENT="summary"))
 
-                    logger.info("Generating PDFs for each client.")
-                    with tqdm(
-                        clients.iter_rows(),
-                        total=clients.height,
-                        leave=False,
-                        desc="Generating Client PDFs",
-                    ) as client_pbar:
-                        for client in client_pbar:
-                            client_id = client[0]
-                            logger.info(f"Generating PDF for client: {client_id}")
-                            client_pbar.set_description(
-                                f"Generating PDF for client {client_id}"
-                            )
-
-                            pdf = PDF(
-                                config=config,
-                                cover_page=include_summary,
-                            )
-                            pdf.set_title(f"{key} {client_id}")
-
-                            # Add client summary if available
-                            if include_summary:
-                                client_summary = df_client_summaries.filter(
-                                    pl.col("client") == client_id
-                                ).row(0, named=True)
-
-                                key_figures = [
-                                    (
-                                        "Opening Balance",
-                                        client_summary["opening_balance"],
-                                        f"({'Due' if client_summary['opening_balance'] > 0 else 'Advance'})"
-                                        if client_summary["opening_balance"] != 0
-                                        else "",
+                        df_transactions = (
+                            pl.concat(
+                                [
+                                    df_invoices_close.select(
+                                        "sort_date",
+                                        pl.col("date"),
+                                        pl.col("client"),
+                                        pl.lit("Invoice").alias("type"),
+                                        pl.col("number").alias("reference"),
+                                        pl.col("total").alias("amount"),
                                     ),
-                                    (
-                                        "Total Billed",
-                                        client_summary["invoice_total"],
-                                        f"({client_summary['invoice_count']} invoices)",
-                                    ),
-                                    (
-                                        "Total Paid",
-                                        client_summary["receipt_total"],
-                                        f"({client_summary['receipt_count']} receipts)",
-                                    ),
-                                    (
-                                        "Closing Balance",
-                                        client_summary["closing_balance"],
-                                        f"({'Due' if client_summary['closing_balance'] > 0 else 'Advance'})"
-                                        if client_summary["closing_balance"] != 0
-                                        else "",
-                                        "#ffcccc"
-                                        if client_summary["closing_balance"] > 0
-                                        else None,
+                                    df_receipts_close.select(
+                                        "sort_date",
+                                        pl.col("date"),
+                                        pl.col("client"),
+                                        pl.lit("Receipt").alias("type"),
+                                        pl.col("number").alias("reference"),
+                                        pl.col("amount").neg(),
                                     ),
                                 ]
+                            )
+                            .filter(
+                                pl.col("sort_date").is_between(start_date, end_date)
+                            )
+                            .sort("sort_date")
+                            .with_columns(
+                                pl.col("amount")
+                                .cum_sum()
+                                .over("client")
+                                .alias("balance")
+                            )
+                        )
+                    else:
+                        df_transactions = None
 
-                                df_balance_client = (
-                                    df_balance.filter(
-                                        (pl.col("client") == client_id)
-                                        & (
-                                            (pl.col("invoiced") != 0)
-                                            | (pl.col("received") != 0)
-                                        )
-                                    )
-                                    .select(
-                                        "sort_date",
-                                        "open",
-                                        "invoiced",
-                                        "received",
-                                        "balance",
-                                    )
-                                    .sort("sort_date")
-                                )
+                    logger.info("Generating PDFs for each client.")
 
-                                df_invoices_close_client = df_invoices_close.filter(
+                    with ProcessPoolExecutor() as executor:
+                        futures = [
+                            executor.submit(
+                                generate_client_pdf,
+                                config,
+                                client_id,
+                                df_invoices_report.filter(
                                     pl.col("client") == client_id
-                                ).select(
-                                    "sort_date",
-                                    pl.col("date"),
-                                    pl.lit("Invoice").alias("type"),
-                                    pl.col("number").alias("reference"),
-                                    pl.col("total").alias("amount"),
-                                )
-
-                                df_receipts_close_client = df_receipts_close.filter(
+                                ).to_dicts(),
+                                df_receipts_report.filter(
                                     pl.col("client") == client_id
-                                ).select(
+                                ).to_dicts(),
+                                df_transactions.filter(pl.col("client") == client_id)
+                                .drop("client")
+                                .to_dicts()
+                                if df_transactions is not None
+                                else None,
+                                reporting_period_text,
+                                include_summary,
+                                df_client_summaries.filter(
+                                    pl.col("client") == client_id
+                                ).row(0, named=True)
+                                if df_client_summaries is not None
+                                else {},
+                                df_balance.filter(
+                                    (pl.col("client") == client_id)
+                                    & (
+                                        (pl.col("invoiced") != 0)
+                                        | (pl.col("received") != 0)
+                                    )
+                                )
+                                .select(
                                     "sort_date",
-                                    pl.col("date"),
-                                    pl.lit("Receipt").alias("type"),
-                                    pl.col("number").alias("reference"),
-                                    pl.col("amount").neg(),
+                                    "open",
+                                    "invoiced",
+                                    "received",
+                                    "balance",
                                 )
-
-                                df_transactions = (
-                                    pl.concat(
-                                        [
-                                            df_invoices_close_client,
-                                            df_receipts_close_client,
-                                        ]
-                                    )
-                                    .sort("sort_date")
-                                    .with_columns(
-                                        pl.col("amount").cum_sum().alias("balance")
-                                    )
-                                    .filter(
-                                        pl.col("sort_date").is_between(
-                                            start_date, end_date
-                                        )
-                                    )
-                                )
-
-                                pdf.add_client_summary(
-                                    client=client_id,
-                                    client_display_name=client_summary[
-                                        "client_display_name"
-                                    ],
-                                    client_address=client_summary["client_address"],
-                                    client_phone=client_summary["client_phone"],
-                                    client_email=client_summary["client_email"],
-                                    generated=f"Generated: {datetime.datetime.now().strftime(date_format_invoice)}",
-                                    period=reporting_period_text,
-                                    key_figures=key_figures,
-                                    monthly_summary=df_balance_client.to_dicts(),
-                                    transactions=df_transactions.to_dicts(),
-                                    outstanding=client_summary["closing_balance"],
-                                    toc_level=1,
-                                )
-
-                            client_invoices = df_invoices_report.filter(
-                                pl.col("client") == client_id
+                                .sort("sort_date")
+                                .to_dicts()
+                                if df_balance is not None
+                                else None,
                             )
-                            for i, invoice_data in tqdm(
-                                enumerate(client_invoices.to_dicts()),
-                                total=client_invoices.height,
+                            for client_id in clients.to_series()
+                        ]
+
+                        with ThreadPoolExecutor() as thread_executor:
+                            futures_pdfs = []
+
+                            for future in tqdm(
+                                as_completed(futures),
+                                total=len(futures),
+                                desc="Generating Client Statements",
                                 leave=False,
-                                desc="Generating Client Invoices",
                             ):
-                                pdf.generate_invoice(
-                                    invoice_data,
-                                    start_section=i == 0,
-                                    create_toc_entry=True,
+                                client_id, pdfbytes = future.result()
+                                futures_pdfs.append(
+                                    thread_executor.submit(
+                                        write_pdf,
+                                        path.format(CLIENT=client_id),
+                                        pdfbytes,
+                                    )
                                 )
 
-                            logger.info(
-                                f"Invoices for client {client_id} generated successfully."
-                            )
-
-                            client_receipts = df_receipts_report.filter(
-                                pl.col("client") == client_id
-                            )
-                            for i, receipt_data in tqdm(
-                                enumerate(client_receipts.to_dicts()),
-                                total=client_receipts.height,
+                            for _ in tqdm(
+                                as_completed(futures_pdfs),
+                                total=len(futures_pdfs),
+                                desc="Saving Client Statements",
                                 leave=False,
-                                desc="Generating Client Receipts",
                             ):
-                                pdf.generate_receipt(
-                                    receipt_data,
-                                    start_section=i == 0,
-                                    create_toc_entry=True,
-                                )
+                                pass
 
-                            logger.info(
-                                f"Receipts for client {client_id} generated successfully."
-                            )
+                    logger.info("Client PDFs generated successfully.")
 
-                            pdf.output(path.format(CLIENT=client_id))
                 else:
                     logger.error(f"Unknown output type: {output_type}")
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def generate_client_pdf(
+    config: Config,
+    client_id: str,
+    client_invoices: list[dict[str, Any]],
+    client_receipts: list[dict[str, Any]],
+    client_transactions: list[dict[str, Any]] | None,
+    reporting_period_text: str | None,
+    include_summary: bool,
+    client_summary: dict[str, Any],
+    monthly_summary: list[dict[str, Any]] | None,
+) -> tuple[str, bytearray]:
+    """Generate PDF for a single client."""
+    logger.info(f"Generating PDF for client: {client_id}")
+
+    pdf = PDF(
+        config=config,
+        cover_page=include_summary,
+    )
+    pdf.set_title(client_id)
+
+    # Add client summary if available
+    if include_summary:
+        key_figures = [
+            (
+                "Opening Balance",
+                client_summary["opening_balance"],
+                f"({'Due' if client_summary['opening_balance'] > 0 else 'Advance'})"
+                if client_summary["opening_balance"] != 0
+                else "",
+            ),
+            (
+                "Total Billed",
+                client_summary["invoice_total"],
+                f"({client_summary['invoice_count']} invoices)",
+            ),
+            (
+                "Total Paid",
+                client_summary["receipt_total"],
+                f"({client_summary['receipt_count']} receipts)",
+            ),
+            (
+                "Closing Balance",
+                client_summary["closing_balance"],
+                f"({'Due' if client_summary['closing_balance'] > 0 else 'Advance'})"
+                if client_summary["closing_balance"] != 0
+                else "",
+                "#ffcccc" if client_summary["closing_balance"] > 0 else None,
+            ),
+        ]
+
+        if client_transactions is None or monthly_summary is None:
+            raise ValueError(
+                f"Transactions or monthly summary data for client {client_id} is missing."
+            )
+
+        pdf.add_client_summary(
+            client=client_id,
+            client_display_name=client_summary["client_display_name"],
+            client_address=client_summary["client_address"],
+            client_phone=client_summary["client_phone"],
+            client_email=client_summary["client_email"],
+            generated=f"Generated: {datetime.datetime.now().strftime(config.invoice.date_format)}",
+            period=reporting_period_text,
+            key_figures=key_figures,
+            monthly_summary=monthly_summary,
+            transactions=client_transactions,
+            outstanding=client_summary["closing_balance"],
+            toc_level=1,
+        )
+
+        logger.info(f"Client summary for {client_id} added to PDF.")
+
+    for i, invoice_data in tqdm(
+        enumerate(client_invoices),
+        total=len(client_invoices),
+        leave=False,
+        desc="Generating Client Invoices",
+    ):
+        pdf.generate_invoice(
+            invoice_data,
+            start_section=i == 0,
+            create_toc_entry=True,
+        )
+
+    logger.info(f"Invoices for client {client_id} generated successfully.")
+
+    for i, receipt_data in tqdm(
+        enumerate(client_receipts),
+        total=len(client_receipts),
+        leave=False,
+        desc="Generating Client Receipts",
+    ):
+        pdf.generate_receipt(
+            receipt_data,
+            start_section=i == 0,
+            create_toc_entry=True,
+        )
+
+    logger.info(f"Receipts for client {client_id} generated successfully.")
+
+    return client_id, pdf.output()
 
 
 def generate_invoice_pdf(
