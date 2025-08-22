@@ -2,8 +2,10 @@
 
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
+from functools import cache
 import logging
 from typing import Any
+import qrcode
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +90,12 @@ def format_currency(value: Decimal, currency: str = "INR") -> str:
         return f"{currency_symbol}{value:>12,}"
     else:
         return f"{value:>12,} {currency}"
+
+
+@cache
+def get_qrcode_image(data: str) -> qrcode.image.base.BaseImage:
+    """Generate a QR code image for the given data."""
+    qr = qrcode.QRCode()
+    qr.add_data(data)
+    img = qr.make_image()
+    return img

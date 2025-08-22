@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Add multiprocessing for individual PDF generation.
+- Add multiprocessing for client PDF generation.
+- Cache generated QR code to allow re-use.
+
+### Remove
+
+- Remove clients with no transactions and zero-balance from client-wise summary.
+
 ## [0.1.0]
 
 ### Changed
