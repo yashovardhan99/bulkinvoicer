@@ -3,7 +3,6 @@
 import datetime
 from pathlib import Path
 import sys
-import tomllib
 import logging
 from typing import Any
 import polars as pl
@@ -26,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 def load_config(config_file: str) -> Config:
     """Load configuration from a TOML file."""
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
     try:
         with open(config_file, "rb") as f:
             config = tomllib.load(f)
@@ -847,6 +850,9 @@ def read_excel(config: Config) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame
             except (FileNotFoundError, ValueError) as e:
                 logger.critical(f"Error reading Excel file: {e}")
                 exceptions.append(e)
+            except pl.exceptions.PolarsError as e:
+                logger.critical(f"Polars error reading Excel file: {e}")
+                exceptions.append(e)
             except Exception as e:
                 logger.critical(f"Unexpected error reading Excel file: {e}")
                 exceptions.append(e)
@@ -860,7 +866,7 @@ def read_excel(config: Config) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame
         if exceptions:
             if sys.version_info < (3, 11):
                 raise ValueError(
-                    "Errors occurred while reading Excel files. ", exceptions
+                    f"Errors occurred while reading Excel files: {exceptions}"
                 )
             else:
                 from builtins import ExceptionGroup

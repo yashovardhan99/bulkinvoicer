@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Added 3rd party toml library to support Python version 3.10
+
 ## [0.1.1] - 2025-08-22
 
 ### Changed
