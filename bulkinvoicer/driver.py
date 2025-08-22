@@ -584,7 +584,12 @@ def generate(config: Config) -> None:
                         ],
                         "status_breakdown": df_status_breakdown.to_dicts(),
                         "monthly_summary": df_balance_aggregated.to_dicts(),
-                        "client_summaries": df_client_summaries.to_dicts(),
+                        "client_summaries": df_client_summaries.filter(
+                            (pl.col("opening_balance") != 0)
+                            | (pl.col("closing_balance") != 0)
+                            | (pl.col("invoice_total") != 0)
+                            | (pl.col("receipt_total") != 0)
+                        ).to_dicts(),
                     }
                 else:
                     df_client_summaries = None
