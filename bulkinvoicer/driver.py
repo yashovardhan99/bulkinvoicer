@@ -2,6 +2,7 @@
 
 import datetime
 from pathlib import Path
+import sys
 import tomllib
 import logging
 from typing import Any
@@ -12,7 +13,12 @@ from bulkinvoicer.utils import match_payments
 from bulkinvoicer.pdf import PDF
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -51,37 +57,14 @@ def generate(config: Config) -> None:
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Configuration: %s", config)
 
-    logger.info("Reading data from Excel files.")
-
     date_format_invoice = config.invoice.date_format
     decimals_invoice = config.invoice.decimals
 
     date_format_receipt = config.receipt.date_format
     decimals_receipt = config.receipt.decimals
 
-    df_invoice_data = pl.read_excel(
-        config.excel.filepath,
-        sheet_name="invoices",
-    )
+    df_invoice_data, df_receipt_data, df_clients = read_excel(config)
 
-    df_receipt_data = pl.read_excel(
-        config.excel.filepath,
-        sheet_name="receipts",
-    )
-
-    df_clients = pl.read_excel(
-        config.excel.filepath,
-        sheet_name="clients",
-        schema_overrides={
-            "name": pl.String,
-            "display name": pl.String,
-            "address": pl.String,
-            "phone": pl.String,
-            "email": pl.String,
-        },
-    )
-
-    logger.info("Data loaded from Excel files. Starting data processing.")
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Invoice DataFrame: %s", df_invoice_data)
         logger.debug("Clients DataFrame: %s", df_clients)
@@ -823,6 +806,71 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def read_excel(config: Config) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Read Excel file and return dataframes for invoices, receipts, and clients."""
+    logger.info("Reading data from Excel files.")
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_invoice_data = executor.submit(
+            pl.read_excel,
+            config.excel.filepath,
+            sheet_name="invoices",
+        )
+        future_receipt_data = executor.submit(
+            pl.read_excel,
+            config.excel.filepath,
+            sheet_name="receipts",
+        )
+        future_clients = executor.submit(
+            pl.read_excel,
+            config.excel.filepath,
+            sheet_name="clients",
+            schema_overrides={
+                "name": pl.String,
+                "display name": pl.String,
+                "address": pl.String,
+                "phone": pl.String,
+                "email": pl.String,
+            },
+        )
+
+        exceptions: list[Exception] = []
+
+        def get_results(future: Future[pl.DataFrame]) -> pl.DataFrame:
+            try:
+                return future.result()
+            except TimeoutError as e:
+                logger.critical("Reading Excel file timed out.")
+                exceptions.append(e)
+            except (FileNotFoundError, ValueError) as e:
+                logger.critical(f"Error reading Excel file: {e}")
+                exceptions.append(e)
+            except Exception as e:
+                logger.critical(f"Unexpected error reading Excel file: {e}")
+                exceptions.append(e)
+
+            return pl.DataFrame()
+
+        df_invoice_data = get_results(future_invoice_data)
+        df_receipt_data = get_results(future_receipt_data)
+        df_clients = get_results(future_clients)
+
+        if exceptions:
+            if sys.version_info < (3, 11):
+                raise ValueError(
+                    "Errors occurred while reading Excel files. ", exceptions
+                )
+            else:
+                from builtins import ExceptionGroup
+
+                raise ExceptionGroup(
+                    "Errors occurred while reading Excel files.",
+                    exceptions,
+                )
+    logger.info("Data loaded from Excel files.")
+    return (df_invoice_data, df_receipt_data, df_clients)
 
 
 def generate_client_summary_pdf(config, summary_details) -> tuple[str, bytearray]:

@@ -58,7 +58,7 @@ def main() -> None:
             logger.critical(e, exc_info=True)
         else:
             logger.critical("Bulkinvoicer encountered an error.")
-            logger.critical("Run with --debug for more details.")
+            logger.critical(e)
         sys.exit(1)
 
     logger.info("Bulkinvoicer finished successfully.")
