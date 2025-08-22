@@ -8,6 +8,7 @@ This script expects the changelog format to be based on [Keep a Changelog](https
 
 import sys
 import logging
+from datetime import date
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def main(*args) -> int:
         data = file.read()
         start = data.index(unreleased_section) + len(unreleased_section)
         file.seek(start)
-        file.write(f"\n\n## [{version_no}]")
+        file.write(f"\n\n## [{version_no}] - {date.today().isoformat()}")
         file.write(data[start:])
         file.truncate()
 
@@ -50,7 +51,7 @@ def main(*args) -> int:
         file.seek(start)
         file.write(unreleased_url.format(version=version_no))
 
-        file.write(f"\n[v{version_no}]: ")
+        file.write(f"\n[{version_no}]: ")
         file.write(data[start:].replace("...HEAD", f"...v{version_no}"))
         file.truncate()
 
