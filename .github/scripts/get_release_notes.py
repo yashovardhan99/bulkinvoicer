@@ -24,7 +24,11 @@ def main(*args) -> int:
 
     with open(changelog_file_path) as file:
         data = file.read()
-        start = data.index(f"## [{version_no}]") + len(f"## [{version_no}]")
+        start = (
+            data.index(f"## [{version_no}]")
+            + len(f"## [{version_no}]")
+            + len(" - YYYY-MM-DD")
+        )
         end = (
             data.index("## [", start + 1)
             if "## [" in data[start + 1 :]
