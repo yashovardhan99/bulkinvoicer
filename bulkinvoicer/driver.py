@@ -33,7 +33,7 @@ def load_config(config_file: str) -> Config:
     try:
         with open(config_file, "rb") as f:
             config = tomllib.load(f)
-            logger.info("Configuration loaded successfully.")
+            logger.debug("Configuration loaded successfully.")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Config: {config}")
 
@@ -80,7 +80,7 @@ def generate(config: Config) -> None:
     ) as output_format_pbar:
         with logging_redirect_tqdm():
             for key, output_config in output_format_pbar:
-                logger.info(f"Starting with output format: {key}")
+                logger.debug(f"Starting with output format: {key}")
                 output_format_pbar.set_description(f"Generating {key} output")
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Output format {key} configuration: {output_config}")
@@ -186,7 +186,7 @@ def generate(config: Config) -> None:
                     pdf.set_title(key)
 
                     if include_summary:
-                        logger.info("Including summary in the combined PDF.")
+                        logger.debug("Including summary in the combined PDF.")
                         pdf.add_combined_summary(summary_details, toc_level=1)
 
                     for i, invoice_data in tqdm(
@@ -222,7 +222,7 @@ def generate(config: Config) -> None:
 
                 elif output_type == "individual":
                     if include_summary:
-                        logger.info("Generating summary PDF")
+                        logger.debug("Generating summary PDF")
 
                         pdf = PDF(
                             config=config,
@@ -879,7 +879,7 @@ def generate_client_pdf(
     monthly_summary: list[dict[str, Any]] | None,
 ) -> tuple[str, bytearray]:
     """Generate PDF for a single client."""
-    logger.info(f"Generating PDF for client: {client_id}")
+    logger.debug(f"Generating PDF for client: {client_id}")
 
     pdf = PDF(
         config=config,
@@ -937,7 +937,7 @@ def generate_client_pdf(
             toc_level=1,
         )
 
-        logger.info(f"Client summary for {client_id} added to PDF.")
+        logger.debug(f"Client summary for {client_id} added to PDF.")
 
     for i, invoice_data in enumerate(client_invoices):
         pdf.generate_invoice(
@@ -946,7 +946,7 @@ def generate_client_pdf(
             create_toc_entry=True,
         )
 
-    logger.info(f"Invoices for client {client_id} generated successfully.")
+    logger.debug(f"Invoices for client {client_id} generated successfully.")
 
     for i, receipt_data in enumerate(client_receipts):
         pdf.generate_receipt(
@@ -955,7 +955,7 @@ def generate_client_pdf(
             create_toc_entry=True,
         )
 
-    logger.info(f"Receipts for client {client_id} generated successfully.")
+    logger.debug(f"Receipts for client {client_id} generated successfully.")
 
     return client_id, pdf.output()
 
