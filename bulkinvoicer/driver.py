@@ -70,40 +70,7 @@ def generate(config: Config) -> None:
 
     df_receipts = prepare_receipts(config, df_receipt_data, df_clients)
 
-    logger.info("Matching payments to invoices.")
-
-    matched: list[dict[str, Any]] = []
-    unmatched: list[dict[str, Any]] = []
-
-    for client in df_receipts.select("client").unique().iter_rows():
-        df_invoices_client = df_invoices.filter(pl.col("client") == client[0])
-        df_receipts_client = df_receipts.filter(pl.col("client") == client[0])
-        matched_payments, unmatched_invoices = match_payments(
-            df_invoices_client.to_dicts(),
-            df_receipts_client.to_dicts(),
-        )
-        matched.extend(matched_payments)
-        unmatched.extend(unmatched_invoices)
-
-    if matched:
-        df_matched = pl.from_dicts(matched)
-    else:
-        df_matched = pl.DataFrame(schema={"receipt": pl.Utf8, "invoices": pl.List})
-
-    df_unpaid_invoices = pl.from_dicts(
-        unmatched, schema={"number": pl.Utf8, "balance": pl.Decimal}
-    )
-
-    df_receipts = df_receipts.join(
-        df_matched, left_on="number", right_on="receipt", how="inner"
-    )
-
-    df_invoices = df_invoices.join(df_unpaid_invoices, on="number", how="left")
-
-    logger.info("Payments matched to invoices.")
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Matched Receipts DataFrame: {df_receipts}")
+    df_invoices, df_receipts = match_payments_by_client(df_invoices, df_receipts)
 
     logger.info("Starting PDF generation.")
 
@@ -188,26 +155,9 @@ def generate(config: Config) -> None:
                 df_invoices_report = df_invoices_report.sort("number")
                 df_receipts_report = df_receipts_report.sort("number")
 
-                reporting_period_text = None
-                if start_date and end_date:
-                    if start_date > end_date:
-                        logger.error(
-                            f"Start date {start_date} is after end date {end_date}. "
-                            "Please check the configuration."
-                        )
-                        raise ValueError(
-                            f"Start date {start_date} cannot be after end date {end_date}."
-                        )
-
-                    reporting_period_text = f"Period: {start_date.strftime(date_format_invoice)} - {end_date.strftime(date_format_invoice)}"
-                elif start_date:
-                    reporting_period_text = (
-                        f"Period: Starting {start_date.strftime(date_format_invoice)}"
-                    )
-                elif end_date:
-                    reporting_period_text = (
-                        f"Period: Ending {end_date.strftime(date_format_invoice)}"
-                    )
+                reporting_period_text = get_reporting_period_text(
+                    date_format_invoice, start_date, end_date
+                )
 
                 # Get client wise total invoices, receipts, opening and closing balances
                 clients = df_clients_close = pl.concat(
@@ -699,6 +649,90 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def match_payments_by_client(
+    df_invoices: pl.DataFrame, df_receipts: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Match payments to invoices on a per-client basis."""
+    # Early exits
+    if df_invoices.is_empty() and df_receipts.is_empty():
+        logger.warning("No invoices or receipts to match.")
+        return (df_invoices, df_receipts)
+    if df_receipts.is_empty():
+        # No receipts: all invoices remain unpaid
+        return (df_invoices.with_columns(pl.col("total").alias("balance")), df_receipts)
+
+    logger.info("Matching payments to invoices.")
+
+    matched: list[dict[str, Any]] = []
+    unpaid: list[dict[str, Any]] = []
+
+    clients = df_receipts.select("client").unique().to_series()
+
+    for client_id in clients:
+        inv = (
+            df_invoices.filter(pl.col("client") == client_id)
+            .sort("sort_date")  # stable FIFO
+            .select("number", "total")  # only what match_payments needs
+            .to_dicts()
+        )
+        rec = (
+            df_receipts.filter(pl.col("client") == client_id)
+            .sort("sort_date")  # stable FIFO
+            .select("number", "amount")  # only what match_payments needs
+            .to_dicts()
+        )
+
+        if not inv and not rec:
+            continue
+
+        m_payments, u_invoices = match_payments(inv, rec)
+        matched.extend(m_payments)
+        unpaid.extend(u_invoices)
+
+    # Build frames to join back
+    df_matched = (
+        pl.from_dicts(matched)
+        if matched
+        else pl.DataFrame(schema={"receipt": pl.Utf8, "invoices": pl.List})
+    )
+    df_unpaid_invoices = pl.from_dicts(
+        unpaid, schema={"number": pl.Utf8, "balance": pl.Decimal}
+    )
+
+    # Join back to original frames
+    df_receipts_out = df_receipts.join(
+        df_matched, left_on="number", right_on="receipt", how="left"
+    )
+    df_invoices_out = df_invoices.join(df_unpaid_invoices, on="number", how="left")
+
+    logger.info("Payments matched to invoices.")
+    return (df_invoices_out, df_receipts_out)
+
+
+def get_reporting_period_text(
+    date_format: str, start_date: datetime.date | None, end_date: datetime.date | None
+) -> str | None:
+    """Generate reporting period text based on start and end dates."""
+    reporting_period_text = None
+    if start_date and end_date:
+        if start_date > end_date:
+            logger.error(
+                f"Start date {start_date} is after end date {end_date}. "
+                "Please check the configuration."
+            )
+            raise ValueError(
+                f"Start date {start_date} cannot be after end date {end_date}."
+            )
+
+        reporting_period_text = f"Period: {start_date.strftime(date_format)} - {end_date.strftime(date_format)}"
+    elif start_date:
+        reporting_period_text = f"Period: Starting {start_date.strftime(date_format)}"
+    elif end_date:
+        reporting_period_text = f"Period: Ending {end_date.strftime(date_format)}"
+
+    return reporting_period_text
 
 
 def generate_client_summary_pdf(config, summary_details) -> tuple[str, bytearray]:
