@@ -187,21 +187,7 @@ def generate(config: Config) -> None:
 
                     logger.info("Summarizing every client data together.")
 
-                    df_status_breakdown = (
-                        df_client_summaries.with_columns(
-                            pl.when(pl.col("closing_balance") > 0)
-                            .then(pl.lit("Outstanding"))
-                            .when(pl.col("closing_balance") < 0)
-                            .then(pl.lit("Advance"))
-                            .otherwise(pl.lit("Settled"))
-                            .alias("status"),
-                        )
-                        .group_by("status")
-                        .agg(
-                            pl.count("client").alias("Clients"),
-                            pl.sum("closing_balance").alias("amount"),
-                        )
-                    )
+                    df_status_breakdown = build_status_breakdown(df_client_summaries)
 
                     (
                         invoice_count,
@@ -592,6 +578,29 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def build_status_breakdown(df_client_summaries: pl.DataFrame) -> pl.DataFrame:
+    """Build a status breakdown DataFrame from client summaries."""
+    df_status_breakdown = (
+        df_client_summaries.with_columns(
+            pl.when(pl.col("closing_balance") > 0)
+            .then(pl.lit("Outstanding"))
+            .when(pl.col("closing_balance") < 0)
+            .then(pl.lit("Advance"))
+            .otherwise(pl.lit("Settled"))
+            .alias("status"),
+        )
+        .group_by("status")
+        .agg(
+            pl.count("client").alias("Clients"),
+            pl.sum("closing_balance").alias("amount"),
+        )
+        .with_columns(pl.col("status").cast(pl.Categorical))
+        .sort("status")  # or map a custom order if desired
+    )
+
+    return df_status_breakdown
 
 
 def build_client_transactions_df(
