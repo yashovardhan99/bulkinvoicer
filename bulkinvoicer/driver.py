@@ -1,7 +1,6 @@
 """Driver module for BulkInvoicer."""
 
 import datetime
-from decimal import Decimal
 from pathlib import Path
 import sys
 import logging
@@ -63,7 +62,6 @@ def generate(config: Config) -> None:
         logger.debug("Configuration: %s", config)
 
     date_format_invoice = config.invoice.date_format
-    decimals_invoice = config.invoice.decimals
 
     df_invoice_data, df_receipt_data, df_clients = read_excel(config)
 
@@ -117,44 +115,32 @@ def generate(config: Config) -> None:
                 df_invoices_close = frames["invoices_close"]
                 df_receipts_close = frames["receipts_close"]
 
-                df_invoices_report = df_invoices_report.sort("number")
-                df_receipts_report = df_receipts_report.sort("number")
-
                 reporting_period_text = get_reporting_period_text(
                     date_format_invoice, start_date, end_date
                 )
 
-                # Get client wise total invoices, receipts, opening and closing balances
-                clients = df_clients_close = pl.concat(
-                    [
-                        df_invoices_close.select("client"),
-                        df_receipts_close.select("client"),
-                    ]
-                ).unique()
-
-                client_summaries: dict[str, tuple] = {}
+                # Consolidate clients from both invoices and receipts
+                df_clients_close = (
+                    pl.concat(
+                        [
+                            df_invoices_close.select("client"),
+                            df_receipts_close.select("client"),
+                        ]
+                    )
+                    .unique()
+                    .join(df_clients, left_on="client", right_on="name", how="left")
+                    .select("client", "display name", "address", "phone", "email")
+                )
 
                 include_summary = output_config.include_summary
 
                 if include_summary:
-                    for client in df_clients_close.iter_rows():
-                        client_id = client[0]
-                        logger.info(f"Generating summary data for client: {client_id}")
-                        client_summaries[client_id] = get_key_figures(
-                            decimals_invoice,
-                            df_invoices_open.filter(pl.col("client") == client_id),
-                            df_receipts_open.filter(pl.col("client") == client_id),
-                            df_invoices_close.filter(pl.col("client") == client_id),
-                            df_receipts_close.filter(pl.col("client") == client_id),
-                        )
-
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Client {client_id} summary: {client_summaries[client_id]}"
-                            )
-
                     df_client_summaries = build_client_summaries(
-                        df_clients, client_summaries
+                        df_clients_close,
+                        df_invoices_open,
+                        df_invoices_close,
+                        df_receipts_open,
+                        df_receipts_close,
                     )
 
                     df_status_breakdown = build_status_breakdown(df_client_summaries)
@@ -173,8 +159,6 @@ def generate(config: Config) -> None:
                     )
 
                     df_balance_aggregated = summarize_balance_data(df_balance)
-
-                    df_client_summaries = enrich_client_data(df_client_summaries)
 
                     summary_details = build_summary_report(
                         date_format_invoice,
@@ -360,7 +344,9 @@ def generate(config: Config) -> None:
                                     if df_balance is not None
                                     else None,
                                 )
-                                for client_id in clients.to_series()
+                                for client_id in df_clients_close.select(
+                                    "client"
+                                ).to_series()
                             ]
                         )
 
@@ -466,20 +452,6 @@ def build_summary_report(
     }
 
     return summary_details
-
-
-def enrich_client_data(df_client_summaries: pl.DataFrame) -> pl.DataFrame:
-    """Enrich client summaries with display name, address, phone, and email."""
-    df_client_summaries = df_client_summaries.with_columns(
-        pl.coalesce(pl.col("client_details").list.get(0), pl.col("client")).alias(
-            "client_display_name"
-        ),
-        pl.col("client_details").list.get(1).alias("client_address"),
-        pl.col("client_details").list.get(2).alias("client_phone"),
-        pl.col("client_details").list.get(3).alias("client_email"),
-    ).drop("client_details")
-
-    return df_client_summaries
 
 
 def normalize_date_period(
@@ -612,31 +584,90 @@ def summarize_balance_data(df_balance: pl.DataFrame) -> pl.DataFrame:
 
 
 def build_client_summaries(
-    df_clients: pl.DataFrame, client_summaries: dict[str, tuple]
+    df_clients: pl.DataFrame,
+    df_invoices_open: pl.DataFrame,
+    df_invoices_close: pl.DataFrame,
+    df_receipts_open: pl.DataFrame,
+    df_receipts_close: pl.DataFrame,
 ) -> pl.DataFrame:
     """Build a DataFrame summarizing client data."""
-    df_client_summaries = pl.DataFrame(
-        {
-            "client": [client for client in client_summaries.keys()],
-            "client_details": [
-                df_clients.filter(pl.col("name") == client)
-                .select("display name", "address", "phone", "email")
-                .row(0)
-                if df_clients.filter(pl.col("name") == client).height > 0
-                else (client, None, None, None)
-                for client in client_summaries.keys()
-            ],
-            "invoice_count": [summary[0] for summary in client_summaries.values()],
-            "receipt_count": [summary[1] for summary in client_summaries.values()],
-            "invoice_total": [summary[2] for summary in client_summaries.values()],
-            "receipt_total": [summary[3] for summary in client_summaries.values()],
-            "opening_balance": [summary[4] for summary in client_summaries.values()],
-            "closing_balance": [summary[5] for summary in client_summaries.values()],
-        }
-    ).sort("closing_balance", "invoice_total", descending=True)
+    # Group all invoices and receipts by client
 
-    logger.info("Summarizing every client data together.")
-    return df_client_summaries
+    df_invoices_open_grouped = (
+        df_invoices_open.group_by("client")
+        .agg(
+            pl.count("number").alias("invoice_count_open"),
+            pl.sum("total").alias("invoice_total_open"),
+        )
+        .with_columns(pl.col("invoice_total_open").cast(pl.Decimal))
+    )
+
+    df_invoices_close_grouped = (
+        df_invoices_close.group_by("client")
+        .agg(
+            pl.count("number").alias("invoice_count_close"),
+            pl.sum("total").alias("invoice_total_close"),
+        )
+        .with_columns(pl.col("invoice_total_close").cast(pl.Decimal))
+    )
+
+    df_receipts_open_grouped = (
+        df_receipts_open.group_by("client")
+        .agg(
+            pl.count("number").alias("receipt_count_open"),
+            pl.sum("amount").alias("receipt_total_open"),
+        )
+        .with_columns(pl.col("receipt_total_open").cast(pl.Decimal))
+    )
+
+    df_receipts_close_grouped = (
+        df_receipts_close.group_by("client")
+        .agg(
+            pl.count("number").alias("receipt_count_close"),
+            pl.sum("amount").alias("receipt_total_close"),
+        )
+        .with_columns(pl.col("receipt_total_close").cast(pl.Decimal))
+    )
+
+    # Combine all grouped data into a single DataFrame
+
+    df_combined = (
+        df_clients.join(df_invoices_open_grouped, on="client", how="left")
+        .join(df_invoices_close_grouped, on="client", how="left")
+        .join(df_receipts_open_grouped, on="client", how="left")
+        .join(df_receipts_close_grouped, on="client", how="left")
+        .fill_null(0)
+        .select(
+            pl.col("client"),
+            pl.coalesce(pl.col("display name"), pl.col("client")).alias(
+                "client_display_name"
+            ),
+            pl.col("address").alias("client_address"),
+            pl.col("phone").alias("client_phone"),
+            pl.col("email").alias("client_email"),
+            invoice_count=(
+                pl.col("invoice_count_close") - pl.col("invoice_count_open")
+            ),
+            receipt_count=(
+                pl.col("receipt_count_close") - pl.col("receipt_count_open")
+            ),
+            invoice_total=(
+                pl.col("invoice_total_close") - pl.col("invoice_total_open")
+            ),
+            receipt_total=(
+                pl.col("receipt_total_close") - pl.col("receipt_total_open")
+            ),
+            opening_balance=(
+                pl.col("invoice_total_open") - pl.col("receipt_total_open")
+            ),
+            closing_balance=(
+                pl.col("invoice_total_close") - pl.col("receipt_total_close")
+            ),
+        )
+        .sort("closing_balance", "invoice_total", descending=True)
+    )
+
+    return df_combined
 
 
 def build_status_breakdown(df_client_summaries: pl.DataFrame) -> pl.DataFrame:
@@ -955,55 +986,6 @@ def generate_receipt_pdf(
         create_toc_entry=False,
     )
     return receipt_data["number"], pdf.output()
-
-
-def get_key_figures(
-    decimals: int,
-    df_invoices_open: pl.DataFrame,
-    df_receipts_open: pl.DataFrame,
-    df_invoices_close: pl.DataFrame,
-    df_receipts_close: pl.DataFrame,
-) -> tuple[int, int, Decimal, Decimal, Decimal, Decimal]:
-    """Compute key figures based on input invoices and receipts."""
-    logger.info("Computing key figures.")
-
-    invoice_count = df_invoices_close.shape[0] - df_invoices_open.shape[0]
-    receipt_count = df_receipts_close.shape[0] - df_receipts_open.shape[0]
-    invoice_total = (
-        df_invoices_close.select(pl.col("total").sum()).item()
-        - df_invoices_open.select(pl.col("total").sum()).item()
-    )
-    receipt_total = (
-        df_receipts_close.select(pl.col("amount").sum()).item()
-        - df_receipts_open.select(pl.col("amount").sum()).item()
-    )
-
-    opening_balance = (
-        df_invoices_open.select(
-            pl.col("total").cast(pl.Decimal(None, decimals)).sum()
-        ).item()
-        - df_receipts_open.select(
-            pl.col("amount").cast(pl.Decimal(None, decimals)).sum()
-        ).item()
-    )
-
-    closing_balance = (
-        df_invoices_close.select(
-            pl.col("total").cast(pl.Decimal(None, decimals)).sum()
-        ).item()
-        - df_receipts_close.select(
-            pl.col("amount").cast(pl.Decimal(None, decimals)).sum()
-        ).item()
-    )
-
-    return (
-        invoice_count,
-        receipt_count,
-        invoice_total,
-        receipt_total,
-        opening_balance,
-        closing_balance,
-    )
 
 
 def main(config_file="config.toml") -> None:
