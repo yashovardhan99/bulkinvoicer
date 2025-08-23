@@ -488,46 +488,25 @@ def generate(config: Config) -> None:
 
                 elif output_type == "clients":
                     with ProcessPoolExecutor() as executor:
-                        if include_summary:
-                            futures = [
+                        futures = (
+                            [
                                 executor.submit(
                                     generate_client_summary_pdf, config, summary_details
                                 )
                             ]
-                            df_transactions = (
-                                pl.concat(
-                                    [
-                                        df_invoices_close.select(
-                                            "sort_date",
-                                            pl.col("date"),
-                                            pl.col("client"),
-                                            pl.lit("Invoice").alias("type"),
-                                            pl.col("number").alias("reference"),
-                                            pl.col("total").alias("amount"),
-                                        ),
-                                        df_receipts_close.select(
-                                            "sort_date",
-                                            pl.col("date"),
-                                            pl.col("client"),
-                                            pl.lit("Receipt").alias("type"),
-                                            pl.col("number").alias("reference"),
-                                            pl.col("amount").neg(),
-                                        ),
-                                    ]
-                                )
-                                .sort("sort_date")
-                                .with_columns(
-                                    pl.col("amount")
-                                    .cum_sum()
-                                    .over("client")
-                                    .alias("balance")
-                                )
-                                .filter(
-                                    pl.col("sort_date").is_between(start_date, end_date)
-                                )
+                            if include_summary
+                            else []
+                        )
+                        df_transactions = (
+                            build_client_transactions_df(
+                                start_date,
+                                end_date,
+                                df_invoices_close,
+                                df_receipts_close,
                             )
-                        else:
-                            df_transactions = None
+                            if include_summary
+                            else None
+                        )
 
                         logger.info("Generating PDFs for each client.")
 
@@ -613,6 +592,42 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def build_client_transactions_df(
+    start_date: datetime.date | None,
+    end_date: datetime.date | None,
+    df_invoices_close: pl.DataFrame,
+    df_receipts_close: pl.DataFrame,
+):
+    """Build a transactions DataFrame for clients."""
+    df_transactions = (
+        pl.concat(
+            [
+                df_invoices_close.select(
+                    "sort_date",
+                    pl.col("date"),
+                    pl.col("client"),
+                    pl.lit("Invoice").alias("type"),
+                    pl.col("number").alias("reference"),
+                    pl.col("total").alias("amount"),
+                ),
+                df_receipts_close.select(
+                    "sort_date",
+                    pl.col("date"),
+                    pl.col("client"),
+                    pl.lit("Receipt").alias("type"),
+                    pl.col("number").alias("reference"),
+                    pl.col("amount").neg(),
+                ),
+            ]
+        )
+        .sort("sort_date")
+        .with_columns(pl.col("amount").cum_sum().over("client").alias("balance"))
+        .filter(pl.col("sort_date").is_between(start_date, end_date))
+    )
+
+    return df_transactions
 
 
 def match_payments_by_client(
