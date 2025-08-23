@@ -2,7 +2,7 @@
 
 import datetime
 from pathlib import Path
-import tomllib
+import sys
 import logging
 from typing import Any
 import polars as pl
@@ -12,7 +12,12 @@ from bulkinvoicer.utils import match_payments
 from bulkinvoicer.pdf import PDF
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -20,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 def load_config(config_file: str) -> Config:
     """Load configuration from a TOML file."""
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
     try:
         with open(config_file, "rb") as f:
             config = tomllib.load(f)
@@ -51,37 +60,14 @@ def generate(config: Config) -> None:
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Configuration: %s", config)
 
-    logger.info("Reading data from Excel files.")
-
     date_format_invoice = config.invoice.date_format
     decimals_invoice = config.invoice.decimals
 
     date_format_receipt = config.receipt.date_format
     decimals_receipt = config.receipt.decimals
 
-    df_invoice_data = pl.read_excel(
-        config.excel.filepath,
-        sheet_name="invoices",
-    )
+    df_invoice_data, df_receipt_data, df_clients = read_excel(config)
 
-    df_receipt_data = pl.read_excel(
-        config.excel.filepath,
-        sheet_name="receipts",
-    )
-
-    df_clients = pl.read_excel(
-        config.excel.filepath,
-        sheet_name="clients",
-        schema_overrides={
-            "name": pl.String,
-            "display name": pl.String,
-            "address": pl.String,
-            "phone": pl.String,
-            "email": pl.String,
-        },
-    )
-
-    logger.info("Data loaded from Excel files. Starting data processing.")
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Invoice DataFrame: %s", df_invoice_data)
         logger.debug("Clients DataFrame: %s", df_clients)
@@ -697,101 +683,98 @@ def generate(config: Config) -> None:
                     )
 
                 elif output_type == "clients":
-                    if include_summary:
-                        logger.info("Generating summary PDF")
-
-                        pdf = PDF(
-                            config=config,
-                            cover_page=True,
-                        )
-                        pdf.set_title(f"{key} Overall Summary")
-
-                        pdf.add_combined_summary(summary_details, toc_level=0)
-
-                        pdf.output(path.format(CLIENT="summary"))
-
-                        df_transactions = (
-                            pl.concat(
-                                [
-                                    df_invoices_close.select(
-                                        "sort_date",
-                                        pl.col("date"),
-                                        pl.col("client"),
-                                        pl.lit("Invoice").alias("type"),
-                                        pl.col("number").alias("reference"),
-                                        pl.col("total").alias("amount"),
-                                    ),
-                                    df_receipts_close.select(
-                                        "sort_date",
-                                        pl.col("date"),
-                                        pl.col("client"),
-                                        pl.lit("Receipt").alias("type"),
-                                        pl.col("number").alias("reference"),
-                                        pl.col("amount").neg(),
-                                    ),
-                                ]
-                            )
-                            .sort("sort_date")
-                            .with_columns(
-                                pl.col("amount")
-                                .cum_sum()
-                                .over("client")
-                                .alias("balance")
-                            )
-                            .filter(
-                                pl.col("sort_date").is_between(start_date, end_date)
-                            )
-                        )
-                    else:
-                        df_transactions = None
-
-                    logger.info("Generating PDFs for each client.")
-
                     with ProcessPoolExecutor() as executor:
-                        futures = [
-                            executor.submit(
-                                generate_client_pdf,
-                                config,
-                                client_id,
-                                df_invoices_report.filter(
-                                    pl.col("client") == client_id
-                                ).to_dicts(),
-                                df_receipts_report.filter(
-                                    pl.col("client") == client_id
-                                ).to_dicts(),
-                                df_transactions.filter(pl.col("client") == client_id)
-                                .drop("client")
-                                .to_dicts()
-                                if df_transactions is not None
-                                else None,
-                                reporting_period_text,
-                                include_summary,
-                                df_client_summaries.filter(
-                                    pl.col("client") == client_id
-                                ).row(0, named=True)
-                                if df_client_summaries is not None
-                                else {},
-                                df_balance.filter(
-                                    (pl.col("client") == client_id)
-                                    & (
-                                        (pl.col("invoiced") != 0)
-                                        | (pl.col("received") != 0)
-                                    )
+                        if include_summary:
+                            futures = [
+                                executor.submit(
+                                    generate_client_summary_pdf, config, summary_details
                                 )
-                                .select(
-                                    "sort_date",
-                                    "open",
-                                    "invoiced",
-                                    "received",
-                                    "balance",
+                            ]
+                            df_transactions = (
+                                pl.concat(
+                                    [
+                                        df_invoices_close.select(
+                                            "sort_date",
+                                            pl.col("date"),
+                                            pl.col("client"),
+                                            pl.lit("Invoice").alias("type"),
+                                            pl.col("number").alias("reference"),
+                                            pl.col("total").alias("amount"),
+                                        ),
+                                        df_receipts_close.select(
+                                            "sort_date",
+                                            pl.col("date"),
+                                            pl.col("client"),
+                                            pl.lit("Receipt").alias("type"),
+                                            pl.col("number").alias("reference"),
+                                            pl.col("amount").neg(),
+                                        ),
+                                    ]
                                 )
                                 .sort("sort_date")
-                                .to_dicts()
-                                if df_balance is not None
-                                else None,
+                                .with_columns(
+                                    pl.col("amount")
+                                    .cum_sum()
+                                    .over("client")
+                                    .alias("balance")
+                                )
+                                .filter(
+                                    pl.col("sort_date").is_between(start_date, end_date)
+                                )
                             )
-                            for client_id in clients.to_series()
-                        ]
+                        else:
+                            df_transactions = None
+
+                        logger.info("Generating PDFs for each client.")
+
+                        futures.extend(
+                            [
+                                executor.submit(
+                                    generate_client_pdf,
+                                    config,
+                                    client_id,
+                                    df_invoices_report.filter(
+                                        pl.col("client") == client_id
+                                    ).to_dicts(),
+                                    df_receipts_report.filter(
+                                        pl.col("client") == client_id
+                                    ).to_dicts(),
+                                    df_transactions.filter(
+                                        pl.col("client") == client_id
+                                    )
+                                    .drop("client")
+                                    .to_dicts()
+                                    if df_transactions is not None
+                                    else None,
+                                    reporting_period_text,
+                                    include_summary,
+                                    df_client_summaries.filter(
+                                        pl.col("client") == client_id
+                                    ).row(0, named=True)
+                                    if df_client_summaries is not None
+                                    else {},
+                                    df_balance.filter(
+                                        (pl.col("client") == client_id)
+                                        & (
+                                            (pl.col("invoiced") != 0)
+                                            | (pl.col("received") != 0)
+                                        )
+                                    )
+                                    .select(
+                                        "sort_date",
+                                        "open",
+                                        "invoiced",
+                                        "received",
+                                        "balance",
+                                    )
+                                    .sort("sort_date")
+                                    .to_dicts()
+                                    if df_balance is not None
+                                    else None,
+                                )
+                                for client_id in clients.to_series()
+                            ]
+                        )
 
                         with ThreadPoolExecutor() as thread_executor:
                             futures_pdfs = []
@@ -826,6 +809,89 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def read_excel(config: Config) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Read Excel file and return dataframes for invoices, receipts, and clients."""
+    logger.info("Reading data from Excel files.")
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_invoice_data = executor.submit(
+            pl.read_excel,
+            config.excel.filepath,
+            sheet_name="invoices",
+        )
+        future_receipt_data = executor.submit(
+            pl.read_excel,
+            config.excel.filepath,
+            sheet_name="receipts",
+        )
+        future_clients = executor.submit(
+            pl.read_excel,
+            config.excel.filepath,
+            sheet_name="clients",
+            schema_overrides={
+                "name": pl.String,
+                "display name": pl.String,
+                "address": pl.String,
+                "phone": pl.String,
+                "email": pl.String,
+            },
+        )
+
+        exceptions: list[Exception] = []
+
+        def get_results(future: Future[pl.DataFrame]) -> pl.DataFrame:
+            try:
+                return future.result()
+            except TimeoutError as e:
+                logger.critical("Reading Excel file timed out.")
+                exceptions.append(e)
+            except (FileNotFoundError, ValueError) as e:
+                logger.critical(f"Error reading Excel file: {e}")
+                exceptions.append(e)
+            except pl.exceptions.PolarsError as e:
+                logger.critical(f"Polars error reading Excel file: {e}")
+                exceptions.append(e)
+            except Exception as e:
+                logger.critical(f"Unexpected error reading Excel file: {e}")
+                exceptions.append(e)
+
+            return pl.DataFrame()
+
+        df_invoice_data = get_results(future_invoice_data)
+        df_receipt_data = get_results(future_receipt_data)
+        df_clients = get_results(future_clients)
+
+        if exceptions:
+            if sys.version_info < (3, 11):
+                raise ValueError(
+                    f"Errors occurred while reading Excel files: {exceptions}"
+                )
+            else:
+                from builtins import ExceptionGroup
+
+                raise ExceptionGroup(
+                    "Errors occurred while reading Excel files.",
+                    exceptions,
+                )
+    logger.info("Data loaded from Excel files.")
+    return (df_invoice_data, df_receipt_data, df_clients)
+
+
+def generate_client_summary_pdf(config, summary_details) -> tuple[str, bytearray]:
+    """Generate summary PDF for all clients."""
+    logger.info("Generating summary PDF")
+
+    pdf = PDF(
+        config=config,
+        cover_page=True,
+    )
+    pdf.set_title("Overall Summary")
+
+    pdf.add_combined_summary(summary_details, toc_level=0)
+
+    return "summary", pdf.output()
 
 
 def generate_client_pdf(
