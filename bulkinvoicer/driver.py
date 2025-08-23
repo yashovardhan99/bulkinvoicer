@@ -106,51 +106,15 @@ def generate(config: Config) -> None:
                 start_date = output_config.start_date
                 end_date = output_config.end_date
 
-                df_invoices_report = df_invoices.clone()
-                df_receipts_report = df_receipts.clone()
-
-                df_invoices_open = df_invoices_report.clone()
-                df_receipts_open = df_receipts_report.clone()
-
-                df_invoices_close = df_invoices_report.clone()
-                df_receipts_close = df_receipts_report.clone()
-
-                if start_date:
-                    logger.info(
-                        f"Filtering invoices and receipts from {start_date} onwards."
-                    )
-                    df_invoices_report = df_invoices_report.filter(
-                        pl.col("sort_date") >= start_date
-                    )
-                    df_receipts_report = df_receipts_report.filter(
-                        pl.col("sort_date") >= start_date
-                    )
-
-                    df_invoices_open = df_invoices.filter(
-                        pl.col("sort_date") < start_date
-                    )
-                    df_receipts_open = df_receipts.filter(
-                        pl.col("sort_date") < start_date
-                    )
-                else:
-                    df_invoices_open = df_invoices_open.filter(False)
-                    df_receipts_open = df_receipts_open.filter(False)
-
-                if end_date:
-                    logger.info(f"Filtering invoices and receipts until {end_date}.")
-                    df_invoices_report = df_invoices_report.filter(
-                        pl.col("sort_date") <= end_date
-                    )
-                    df_receipts_report = df_receipts_report.filter(
-                        pl.col("sort_date") <= end_date
-                    )
-
-                    df_invoices_close = df_invoices.filter(
-                        pl.col("sort_date") <= end_date
-                    )
-                    df_receipts_close = df_receipts.filter(
-                        pl.col("sort_date") <= end_date
-                    )
+                frames = slice_period_frames(
+                    df_invoices, df_receipts, start_date, end_date
+                )
+                df_invoices_report = frames["invoices_report"]
+                df_receipts_report = frames["receipts_report"]
+                df_invoices_open = frames["invoices_open"]
+                df_receipts_open = frames["receipts_open"]
+                df_invoices_close = frames["invoices_close"]
+                df_receipts_close = frames["receipts_close"]
 
                 df_invoices_report = df_invoices_report.sort("number")
                 df_receipts_report = df_receipts_report.sort("number")
@@ -733,6 +697,45 @@ def get_reporting_period_text(
         reporting_period_text = f"Period: Ending {end_date.strftime(date_format)}"
 
     return reporting_period_text
+
+
+def slice_period_frames(
+    df_invoices: pl.DataFrame,
+    df_receipts: pl.DataFrame,
+    start_date: datetime.date | None,
+    end_date: datetime.date | None,
+) -> dict[str, pl.DataFrame]:
+    """Create reporting period specific frames."""
+    inv_report = df_invoices
+    rec_report = df_receipts
+    inv_open = df_invoices
+    rec_open = df_receipts
+    inv_close = df_invoices
+    rec_close = df_receipts
+
+    if start_date:
+        inv_report = inv_report.filter(pl.col("sort_date") >= start_date)
+        rec_report = rec_report.filter(pl.col("sort_date") >= start_date)
+        inv_open = df_invoices.filter(pl.col("sort_date") < start_date)
+        rec_open = df_receipts.filter(pl.col("sort_date") < start_date)
+    else:
+        inv_open = df_invoices.filter(False)
+        rec_open = df_receipts.filter(False)
+
+    if end_date:
+        inv_report = inv_report.filter(pl.col("sort_date") <= end_date)
+        rec_report = rec_report.filter(pl.col("sort_date") <= end_date)
+        inv_close = df_invoices.filter(pl.col("sort_date") <= end_date)
+        rec_close = df_receipts.filter(pl.col("sort_date") <= end_date)
+
+    return {
+        "invoices_report": inv_report.sort("number"),
+        "receipts_report": rec_report.sort("number"),
+        "invoices_open": inv_open,
+        "receipts_open": rec_open,
+        "invoices_close": inv_close,
+        "receipts_close": rec_close,
+    }
 
 
 def generate_client_summary_pdf(config, summary_details) -> tuple[str, bytearray]:
