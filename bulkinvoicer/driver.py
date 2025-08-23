@@ -1,6 +1,7 @@
 """Driver module for BulkInvoicer."""
 
 import datetime
+from decimal import Decimal
 from pathlib import Path
 import sys
 import logging
@@ -152,224 +153,42 @@ def generate(config: Config) -> None:
                                 f"Client {client_id} summary: {client_summaries[client_id]}"
                             )
 
-                    df_client_summaries = pl.DataFrame(
-                        {
-                            "client": [client for client in client_summaries.keys()],
-                            "client_details": [
-                                df_clients.filter(pl.col("name") == client)
-                                .select("display name", "address", "phone", "email")
-                                .row(0)
-                                if df_clients.filter(pl.col("name") == client).height
-                                > 0
-                                else (client, None, None, None)
-                                for client in client_summaries.keys()
-                            ],
-                            "invoice_count": [
-                                summary[0] for summary in client_summaries.values()
-                            ],
-                            "receipt_count": [
-                                summary[1] for summary in client_summaries.values()
-                            ],
-                            "invoice_total": [
-                                summary[2] for summary in client_summaries.values()
-                            ],
-                            "receipt_total": [
-                                summary[3] for summary in client_summaries.values()
-                            ],
-                            "opening_balance": [
-                                summary[4] for summary in client_summaries.values()
-                            ],
-                            "closing_balance": [
-                                summary[5] for summary in client_summaries.values()
-                            ],
-                        }
-                    ).sort("closing_balance", "invoice_total", descending=True)
-
-                    logger.info("Summarizing every client data together.")
+                    df_client_summaries = build_client_summaries(
+                        df_clients, client_summaries
+                    )
 
                     df_status_breakdown = build_status_breakdown(df_client_summaries)
 
-                    (
-                        invoice_count,
-                        receipt_count,
-                        invoice_total,
-                        receipt_total,
-                        opening_balance,
-                        closing_balance,
-                    ) = (
-                        df_client_summaries.sum()
-                        .drop("client", "client_details")
-                        .row(0)
-                    )
                     # Compute periodic key figures
 
                     # Default start and end dates to last 12 months if not provided
-                    if not end_date:
-                        end_date = datetime.datetime.now().date()
-                    end_year, end_month = end_date.year, end_date.month
-                    if end_month == 12:
-                        expected_start_date = datetime.datetime(end_year, 1, 1).date()
-                    else:
-                        expected_start_date = datetime.datetime(
-                            end_year - 1, end_month + 1, 1
-                        ).date()
+                    start_date, end_date = normalize_date_period(start_date, end_date)
 
-                    if not start_date:
-                        start_date = expected_start_date
-                    else:
-                        # If the start date is more than a year before the end date, adjust it
-
-                        if start_date < expected_start_date:
-                            logger.warning(
-                                "The truncated date range is more than a year. "
-                                "Periodic summary will be limited to last 12 months."
-                            )
-                            start_date = expected_start_date
-
-                    logger.info(
-                        f"Generating periodic summary from {start_date} to {end_date}."
-                    )
-
-                    df_date_range = (
-                        pl.date_range(
-                            start=start_date, end=end_date, interval="1d", eager=True
-                        )
-                        .to_frame("sort_date")
-                        .group_by_dynamic("sort_date", every="1mo", start_by="window")
-                        .agg()
-                    )
-
-                    df_date_client_range = df_date_range.join(
+                    df_balance = compute_monthly_client_balances(
+                        start_date,
+                        end_date,
+                        df_invoices_close,
+                        df_receipts_close,
                         df_clients_close,
-                        how="cross",
                     )
 
-                    df_invoice_monthly = (
-                        df_invoices_close.sort("sort_date")
-                        .group_by_dynamic("sort_date", every="1mo", group_by="client")
-                        .agg(pl.col("total").sum(), pl.first("client_display_name"))
-                        .join(
-                            df_date_client_range,
-                            on=["sort_date", "client"],
-                            how="full",
-                            coalesce=True,
-                        )
-                        .fill_null(0)
+                    df_balance_aggregated = summarize_balance_data(df_balance)
+
+                    df_client_summaries = enrich_client_data(df_client_summaries)
+
+                    summary_details = build_summary_report(
+                        date_format_invoice,
+                        reporting_period_text,
+                        df_client_summaries,
+                        df_status_breakdown,
+                        df_balance_aggregated,
                     )
-
-                    df_receipts_monthly = (
-                        df_receipts_close.sort("sort_date")
-                        .group_by_dynamic("sort_date", every="1mo", group_by="client")
-                        .agg(pl.col("amount").sum(), pl.first("client_display_name"))
-                        .join(
-                            df_date_client_range,
-                            on=["sort_date", "client"],
-                            how="full",
-                            coalesce=True,
-                        )
-                        .fill_null(0)
-                    )
-
-                    df_balance = (
-                        df_invoice_monthly.join(
-                            df_receipts_monthly,
-                            on=["client", "sort_date"],
-                            coalesce=True,
-                            how="full",
-                        )
-                        .fill_null(0)
-                        .sort("sort_date")
-                        .select(
-                            "client",
-                            pl.coalesce(
-                                "client_display_name", "client_display_name_right"
-                            ).alias("client_display_name"),
-                            "sort_date",
-                            pl.col("total").alias("invoiced"),
-                            pl.col("amount").alias("received"),
-                            (pl.col("total") - pl.col("amount"))
-                            .cum_sum()
-                            .over("client")
-                            .alias("balance"),
-                        )
-                        .with_columns(
-                            open=pl.col("balance")
-                            .shift(1, fill_value=0)
-                            .over("client"),
-                        )
-                        .filter(pl.col("sort_date").is_between(start_date, end_date))
-                        .select(
-                            "client",
-                            "client_display_name",
-                            "sort_date",
-                            "open",
-                            "invoiced",
-                            "received",
-                            "balance",
-                        )
-                    )
-
-                    df_balance_aggregated = (
-                        df_balance.drop("client", "client_display_name")
-                        .group_by("sort_date")
-                        .agg(pl.all().sum())
-                        .with_columns(
-                            pl.col("sort_date").dt.month_end().alias("close_date"),
-                        )
-                        .filter((pl.col("invoiced") != 0) | (pl.col("received") != 0))
-                        .sort("sort_date")
-                    )
-
-                    df_client_summaries = df_client_summaries.with_columns(
-                        pl.coalesce(
-                            pl.col("client_details").list.get(0), pl.col("client")
-                        ).alias("client_display_name"),
-                        pl.col("client_details").list.get(1).alias("client_address"),
-                        pl.col("client_details").list.get(2).alias("client_phone"),
-                        pl.col("client_details").list.get(3).alias("client_email"),
-                    ).drop("client_details")
-
-                    summary_details = {
-                        "period": reporting_period_text,
-                        "generated": f"Generated: {datetime.datetime.now().strftime(date_format_invoice)}",
-                        "key_figures": [
-                            (
-                                "Opening Balance",
-                                opening_balance,
-                                f"({'Due' if opening_balance > 0 else 'Overpaid'})"
-                                if opening_balance != 0
-                                else "",
-                            ),
-                            (
-                                "Total Invoiced",
-                                invoice_total,
-                                f"({invoice_count} invoices)",
-                            ),
-                            (
-                                "Total Received",
-                                receipt_total,
-                                f"({receipt_count} receipts)",
-                            ),
-                            (
-                                "Closing Balance",
-                                closing_balance,
-                                f"({'Due' if closing_balance > 0 else 'Overpaid'})"
-                                if closing_balance != 0
-                                else "",
-                            ),
-                        ],
-                        "status_breakdown": df_status_breakdown.to_dicts(),
-                        "monthly_summary": df_balance_aggregated.to_dicts(),
-                        "client_summaries": df_client_summaries.filter(
-                            (pl.col("opening_balance") != 0)
-                            | (pl.col("closing_balance") != 0)
-                            | (pl.col("invoice_total") != 0)
-                            | (pl.col("receipt_total") != 0)
-                        ).to_dicts(),
-                    }
                 else:
                     df_client_summaries = None
                     df_balance = None
+                    df_balance_aggregated = None
+                    df_status_breakdown = None
+                    summary_details = {}
 
                 if output_type == "combined":
                     logger.info(
@@ -578,6 +397,246 @@ def generate(config: Config) -> None:
                     raise ValueError(
                         f"Output format '{key}' has an unknown 'type': {output_type}"
                     )
+
+
+def build_summary_report(
+    date_format_invoice: str,
+    reporting_period_text: str | None,
+    df_client_summaries: pl.DataFrame,
+    df_status_breakdown: pl.DataFrame,
+    df_balance_aggregated: pl.DataFrame,
+) -> dict[str, Any]:
+    """Build a summary report dictionary."""
+    (
+        invoice_count,
+        receipt_count,
+        invoice_total,
+        receipt_total,
+        opening_balance,
+        closing_balance,
+    ) = (
+        df_client_summaries.select(
+            "invoice_count",
+            "receipt_count",
+            "invoice_total",
+            "receipt_total",
+            "opening_balance",
+            "closing_balance",
+        )
+        .sum()
+        .row(0)
+    )
+    summary_details = {
+        "period": reporting_period_text,
+        "generated": f"Generated: {datetime.datetime.now().strftime(date_format_invoice)}",
+        "key_figures": [
+            (
+                "Opening Balance",
+                opening_balance,
+                f"({'Due' if opening_balance > 0 else 'Overpaid'})"
+                if opening_balance != 0
+                else "",
+            ),
+            (
+                "Total Invoiced",
+                invoice_total,
+                f"({invoice_count} invoices)",
+            ),
+            (
+                "Total Received",
+                receipt_total,
+                f"({receipt_count} receipts)",
+            ),
+            (
+                "Closing Balance",
+                closing_balance,
+                f"({'Due' if closing_balance > 0 else 'Overpaid'})"
+                if closing_balance != 0
+                else "",
+            ),
+        ],
+        "status_breakdown": df_status_breakdown.to_dicts(),
+        "monthly_summary": df_balance_aggregated.to_dicts(),
+        "client_summaries": df_client_summaries.filter(
+            (pl.col("opening_balance") != 0)
+            | (pl.col("closing_balance") != 0)
+            | (pl.col("invoice_total") != 0)
+            | (pl.col("receipt_total") != 0)
+        ).to_dicts(),
+    }
+
+    return summary_details
+
+
+def enrich_client_data(df_client_summaries: pl.DataFrame) -> pl.DataFrame:
+    """Enrich client summaries with display name, address, phone, and email."""
+    df_client_summaries = df_client_summaries.with_columns(
+        pl.coalesce(pl.col("client_details").list.get(0), pl.col("client")).alias(
+            "client_display_name"
+        ),
+        pl.col("client_details").list.get(1).alias("client_address"),
+        pl.col("client_details").list.get(2).alias("client_phone"),
+        pl.col("client_details").list.get(3).alias("client_email"),
+    ).drop("client_details")
+
+    return df_client_summaries
+
+
+def normalize_date_period(
+    start_date: datetime.date | None, end_date: datetime.date | None
+) -> tuple[datetime.date, datetime.date]:
+    """Normalize start and end dates to ensure a maximum of 12 months period."""
+    if not end_date:
+        end_date = datetime.datetime.now().date()
+    end_year, end_month = end_date.year, end_date.month
+    if end_month == 12:
+        expected_start_date = datetime.datetime(end_year, 1, 1).date()
+    else:
+        expected_start_date = datetime.datetime(end_year - 1, end_month + 1, 1).date()
+
+    if not start_date:
+        start_date = expected_start_date
+    else:
+        # If the start date is more than a year before the end date, adjust it
+        if start_date < expected_start_date:
+            logger.warning(
+                "The truncated date range is more than a year. "
+                "Periodic summary will be limited to last 12 months."
+            )
+            start_date = expected_start_date
+    return start_date, end_date
+
+
+def compute_monthly_client_balances(
+    start_date: datetime.date,
+    end_date: datetime.date,
+    df_invoices_close: pl.DataFrame,
+    df_receipts_close: pl.DataFrame,
+    df_clients_close: pl.DataFrame,
+) -> pl.DataFrame:
+    """Compute monthly balances for clients."""
+    logger.info(f"Generating periodic summary from {start_date} to {end_date}.")
+
+    df_date_range = (
+        pl.date_range(start=start_date, end=end_date, interval="1d", eager=True)
+        .to_frame("sort_date")
+        .group_by_dynamic("sort_date", every="1mo", start_by="window")
+        .agg()
+    )
+
+    df_date_client_range = df_date_range.join(
+        df_clients_close,
+        how="cross",
+    )
+
+    df_invoice_monthly = (
+        df_invoices_close.sort("sort_date")
+        .group_by_dynamic("sort_date", every="1mo", group_by="client")
+        .agg(pl.col("total").sum(), pl.first("client_display_name"))
+        .join(
+            df_date_client_range,
+            on=["sort_date", "client"],
+            how="full",
+            coalesce=True,
+        )
+        .fill_null(0)
+    )
+
+    df_receipts_monthly = (
+        df_receipts_close.sort("sort_date")
+        .group_by_dynamic("sort_date", every="1mo", group_by="client")
+        .agg(pl.col("amount").sum(), pl.first("client_display_name"))
+        .join(
+            df_date_client_range,
+            on=["sort_date", "client"],
+            how="full",
+            coalesce=True,
+        )
+        .fill_null(0)
+    )
+
+    df_balance = (
+        df_invoice_monthly.join(
+            df_receipts_monthly,
+            on=["client", "sort_date"],
+            coalesce=True,
+            how="full",
+        )
+        .fill_null(0)
+        .sort("sort_date")
+        .select(
+            "client",
+            pl.coalesce("client_display_name", "client_display_name_right").alias(
+                "client_display_name"
+            ),
+            "sort_date",
+            pl.col("total").alias("invoiced"),
+            pl.col("amount").alias("received"),
+            (pl.col("total") - pl.col("amount"))
+            .cum_sum()
+            .over("client")
+            .alias("balance"),
+        )
+        .with_columns(
+            open=pl.col("balance").shift(1, fill_value=0).over("client"),
+        )
+        .filter(pl.col("sort_date").is_between(start_date, end_date))
+        .select(
+            "client",
+            "client_display_name",
+            "sort_date",
+            "open",
+            "invoiced",
+            "received",
+            "balance",
+        )
+    )
+
+    return df_balance
+
+
+def summarize_balance_data(df_balance: pl.DataFrame) -> pl.DataFrame:
+    """Summarize balance data by month-end."""
+    df_balance_aggregated = (
+        df_balance.drop("client", "client_display_name")
+        .group_by("sort_date")
+        .agg(pl.all().sum())
+        .with_columns(
+            pl.col("sort_date").dt.month_end().alias("close_date"),
+        )
+        .filter((pl.col("invoiced") != 0) | (pl.col("received") != 0))
+        .sort("sort_date")
+    )
+
+    return df_balance_aggregated
+
+
+def build_client_summaries(
+    df_clients: pl.DataFrame, client_summaries: dict[str, tuple]
+) -> pl.DataFrame:
+    """Build a DataFrame summarizing client data."""
+    df_client_summaries = pl.DataFrame(
+        {
+            "client": [client for client in client_summaries.keys()],
+            "client_details": [
+                df_clients.filter(pl.col("name") == client)
+                .select("display name", "address", "phone", "email")
+                .row(0)
+                if df_clients.filter(pl.col("name") == client).height > 0
+                else (client, None, None, None)
+                for client in client_summaries.keys()
+            ],
+            "invoice_count": [summary[0] for summary in client_summaries.values()],
+            "receipt_count": [summary[1] for summary in client_summaries.values()],
+            "invoice_total": [summary[2] for summary in client_summaries.values()],
+            "receipt_total": [summary[3] for summary in client_summaries.values()],
+            "opening_balance": [summary[4] for summary in client_summaries.values()],
+            "closing_balance": [summary[5] for summary in client_summaries.values()],
+        }
+    ).sort("closing_balance", "invoice_total", descending=True)
+
+    logger.info("Summarizing every client data together.")
+    return df_client_summaries
 
 
 def build_status_breakdown(df_client_summaries: pl.DataFrame) -> pl.DataFrame:
@@ -904,7 +963,7 @@ def get_key_figures(
     df_receipts_open: pl.DataFrame,
     df_invoices_close: pl.DataFrame,
     df_receipts_close: pl.DataFrame,
-):
+) -> tuple[int, int, Decimal, Decimal, Decimal, Decimal]:
     """Compute key figures based on input invoices and receipts."""
     logger.info("Computing key figures.")
 
