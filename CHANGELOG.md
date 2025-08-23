@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-08-23
+
 ### Fixed
 
 - Added 3rd party toml library to support Python version 3.10
@@ -57,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sample files and configuration.
 - README and other related files.
 
-[unreleased]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.1...HEAD
+[unreleased]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0a0...v0.1.0
 [0.1.0a0]: https://github.com/yashovardhan99/bulkinvoicer/compare/v0.1.0.dev1...v0.1.0a0
