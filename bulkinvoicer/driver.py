@@ -8,12 +8,13 @@ from typing import Any
 import polars as pl
 from pydantic import ValidationError
 from bulkinvoicer.config import Config
+from bulkinvoicer.prepare import prepare_invoices, prepare_receipts
+from bulkinvoicer.data_io import read_excel, write_pdf
 from bulkinvoicer.utils import match_payments
 from bulkinvoicer.pdf import PDF
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from concurrent.futures import (
-    Future,
     ProcessPoolExecutor,
     ThreadPoolExecutor,
     as_completed,
@@ -63,122 +64,11 @@ def generate(config: Config) -> None:
     date_format_invoice = config.invoice.date_format
     decimals_invoice = config.invoice.decimals
 
-    date_format_receipt = config.receipt.date_format
-    decimals_receipt = config.receipt.decimals
-
     df_invoice_data, df_receipt_data, df_clients = read_excel(config)
 
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Invoice DataFrame: %s", df_invoice_data)
-        logger.debug("Clients DataFrame: %s", df_clients)
-        logger.debug("Receipt DataFrame: %s", df_receipt_data)
+    df_invoices = prepare_invoices(config, df_invoice_data, df_clients)
 
-    df_invoices = (
-        df_invoice_data.filter(pl.col("unit").is_not_null())
-        .with_columns(
-            pl.col("unit").cast(pl.Decimal(None, decimals_invoice)),
-            pl.col("qty").cast(pl.UInt32()),
-        )
-        .with_columns(
-            amount=(pl.col("unit") * pl.col("qty")).cast(
-                pl.Decimal(None, decimals_invoice)
-            ),
-        )
-        .group_by("number")
-        .agg(
-            pl.max("date").cast(pl.Date),
-            pl.coalesce(pl.max("due date"), pl.max("date"))
-            .cast(pl.Date)
-            .alias("due date"),
-            pl.first("client"),
-            pl.sum("amount").alias("subtotal"),
-            (
-                pl.sum(config.invoice.discount_column).cast(
-                    pl.Decimal(None, decimals_invoice)
-                )
-                if config.invoice.discount_column
-                else pl.lit(0)
-            ).alias("discount"),
-            pl.sum(*config.invoice.tax_columns).cast(pl.Decimal(None, decimals_invoice))
-            if config.invoice.tax_columns
-            else pl.lit(0).alias("tax-ignored"),
-            pl.col("description", "unit", "qty", "amount"),
-        )
-        .join(
-            df_clients,
-            left_on="client",
-            right_on="name",
-            how="left",
-        )
-        .sort("number")
-        .select(
-            "number",
-            pl.col("date").alias("sort_date"),
-            pl.col("date").dt.to_string(date_format_invoice).alias("date"),
-            pl.col("due date").dt.to_string(date_format_invoice).alias("due date"),
-            pl.col("client"),
-            pl.coalesce("display name", "client").alias("client_display_name"),
-            pl.col("address").alias("client_address"),
-            pl.col("phone").alias("client_phone"),
-            pl.col("email").alias("client_email"),
-            pl.col("description"),
-            pl.col("unit"),
-            pl.col("qty"),
-            pl.col("amount"),
-            pl.col("subtotal"),
-            pl.col("discount"),
-            pl.col(*config.invoice.tax_columns)
-            if config.invoice.tax_columns
-            else pl.col("tax-ignored"),
-            (
-                pl.sum_horizontal(
-                    "subtotal",
-                    pl.col("discount").neg(),
-                    *config.invoice.tax_columns,
-                )
-            ).alias("total"),
-        )
-    )
-
-    logger.info("Invoices DataFrame prepared.")
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Prepared Invoices DataFrame: {df_invoices}")
-
-    df_receipts = (
-        df_receipt_data.filter(pl.col("date").is_not_null())
-        .with_columns(
-            pl.col("amount").cast(pl.Decimal(None, decimals_receipt)),
-        )
-        .join(
-            df_clients,
-            left_on="client",
-            right_on="name",
-            how="left",
-        )
-        .sort("number")
-        .select(
-            "number",
-            pl.col("date").cast(pl.Date).alias("sort_date"),
-            pl.col("date")
-            .cast(pl.Date)
-            .dt.to_string(date_format_receipt)
-            .alias("date"),
-            pl.col("client"),
-            pl.coalesce("display name", "client").alias("client_display_name"),
-            pl.col("address").alias("client_address"),
-            pl.col("phone").alias("client_phone"),
-            pl.col("email").alias("client_email"),
-            pl.col("amount").cast(pl.Decimal(None, decimals_receipt)),
-            pl.col("payment mode"),
-            pl.col("reference").cast(pl.Utf8),
-        )
-    )
-
-    logger.info("Receipts DataFrame prepared.")
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Prepared Receipts DataFrame: {df_receipts}")
+    df_receipts = prepare_receipts(config, df_receipt_data, df_clients)
 
     logger.info("Matching payments to invoices.")
 
@@ -811,74 +701,6 @@ def generate(config: Config) -> None:
                     )
 
 
-def read_excel(config: Config) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    """Read Excel file and return dataframes for invoices, receipts, and clients."""
-    logger.info("Reading data from Excel files.")
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        future_invoice_data = executor.submit(
-            pl.read_excel,
-            config.excel.filepath,
-            sheet_name="invoices",
-        )
-        future_receipt_data = executor.submit(
-            pl.read_excel,
-            config.excel.filepath,
-            sheet_name="receipts",
-        )
-        future_clients = executor.submit(
-            pl.read_excel,
-            config.excel.filepath,
-            sheet_name="clients",
-            schema_overrides={
-                "name": pl.String,
-                "display name": pl.String,
-                "address": pl.String,
-                "phone": pl.String,
-                "email": pl.String,
-            },
-        )
-
-        exceptions: list[Exception] = []
-
-        def get_results(future: Future[pl.DataFrame]) -> pl.DataFrame:
-            try:
-                return future.result()
-            except TimeoutError as e:
-                logger.critical("Reading Excel file timed out.")
-                exceptions.append(e)
-            except (FileNotFoundError, ValueError) as e:
-                logger.critical(f"Error reading Excel file: {e}")
-                exceptions.append(e)
-            except pl.exceptions.PolarsError as e:
-                logger.critical(f"Polars error reading Excel file: {e}")
-                exceptions.append(e)
-            except Exception as e:
-                logger.critical(f"Unexpected error reading Excel file: {e}")
-                exceptions.append(e)
-
-            return pl.DataFrame()
-
-        df_invoice_data = get_results(future_invoice_data)
-        df_receipt_data = get_results(future_receipt_data)
-        df_clients = get_results(future_clients)
-
-        if exceptions:
-            if sys.version_info < (3, 11):
-                raise ValueError(
-                    f"Errors occurred while reading Excel files: {exceptions}"
-                )
-            else:
-                from builtins import ExceptionGroup
-
-                raise ExceptionGroup(
-                    "Errors occurred while reading Excel files.",
-                    exceptions,
-                )
-    logger.info("Data loaded from Excel files.")
-    return (df_invoice_data, df_receipt_data, df_clients)
-
-
 def generate_client_summary_pdf(config, summary_details) -> tuple[str, bytearray]:
     """Generate summary PDF for all clients."""
     logger.info("Generating summary PDF")
@@ -1013,12 +835,6 @@ def generate_receipt_pdf(
         create_toc_entry=False,
     )
     return receipt_data["number"], pdf.output()
-
-
-def write_pdf(path: str, pdfBytes: bytearray):
-    """Write PDF bytes to a file."""
-    with open(path, "wb") as f:
-        f.write(pdfBytes)
 
 
 def get_key_figures(
