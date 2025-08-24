@@ -51,9 +51,6 @@ def match_payments_by_client(
             .to_dicts()
         )
 
-        if not inv and not rec:
-            continue
-
         m_payments, u_invoices = match_payments(inv, rec)
         matched.extend(m_payments)
         unpaid.extend(u_invoices)
