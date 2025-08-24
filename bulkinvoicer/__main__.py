@@ -1,5 +1,5 @@
 """Run the Bulkinvoicer application CLI."""
 
-from bulkinvoicer.cli import main
+from .app.cli import main
 
 main()

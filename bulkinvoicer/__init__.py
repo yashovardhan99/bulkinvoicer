@@ -1,3 +1,3 @@
-"""Bulk Invoicer Package."""
+"""Bulk Invoicer application package."""
 
 __all__: list[str] = []

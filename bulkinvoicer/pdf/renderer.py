@@ -9,8 +9,8 @@ from collections.abc import Iterable
 
 from fpdf import FPDF, FontFace
 
-from bulkinvoicer.config import Config
-from bulkinvoicer.utils import format_currency, get_qrcode_image
+from ..config.model import Config
+from ..utils import format_currency, get_qrcode_image
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class PDF(FPDF):
         """Initialize the PDF with optional configuration."""
         super().__init__(orientation, unit, format, font_cache_dir)
 
-        logger.info("Adding fonts.")
+        logger.debug("Adding fonts.")
 
         fonts_folder = Path(__file__).parent / "fonts"
 
@@ -92,7 +92,7 @@ class PDF(FPDF):
             )
 
         if self.cover_page and self.page_no() == 1:
-            logger.info("Leaving less header gap for cover page.")
+            logger.debug("Leaving less header gap for cover page.")
             self.ln(10)
         else:
             self.ln(20)
@@ -100,7 +100,7 @@ class PDF(FPDF):
     def footer(self) -> None:
         """Define the footer for the PDF."""
         if self.cover_page and self.page_no() == 1:
-            logger.info("Skipping footer for cover page.")
+            logger.debug("Skipping footer for cover page.")
             return
 
         if self.config.footer.text:
@@ -314,7 +314,7 @@ class PDF(FPDF):
     def print_signature(self) -> None:
         """Print signature section in the PDF."""
         if self.config.signature:
-            logger.info("Printing signature section.")
+            logger.debug("Printing signature section.")
 
             signature_config = self.config.signature
 
@@ -351,7 +351,7 @@ class PDF(FPDF):
         toc_level: int = 0,
     ) -> None:
         """Print the monthly summary in the PDF."""
-        logger.info("Printing monthly summary.")
+        logger.debug("Printing monthly summary.")
         self.set_font(self.header_font.family, size=14, style="B")
 
         if self.will_page_break(50):
@@ -455,6 +455,8 @@ class PDF(FPDF):
         """Print a cover page with details."""
         self.add_page(format="A4")
 
+        logger.info("Adding combined summary page.")
+
         if toc_level > 0:
             self.start_section("Summary", level=toc_level - 1)
 
@@ -463,9 +465,7 @@ class PDF(FPDF):
 
         # Header section
 
-        logger.info("Printing header section for summary.")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Details: {details}")
+        logger.debug("Printing header section for summary.")
 
         self.set_font(self.header_font.family, size=18, style="B")
         self.cell(
@@ -492,7 +492,7 @@ class PDF(FPDF):
         )
         self.ln(10)
 
-        logger.info("Printing key figures section.")
+        logger.debug("Printing key figures section.")
 
         self.start_section("Key Figures", level=toc_level)
 
@@ -503,7 +503,7 @@ class PDF(FPDF):
 
         status_breakdown = details.get("status_breakdown", [])
         if status_breakdown:
-            logger.info("Printing status breakdown.")
+            logger.debug("Printing status breakdown.")
             self.set_font(self.header_font.family, size=14, style="B")
 
             if self.will_page_break(50):
@@ -546,7 +546,7 @@ class PDF(FPDF):
 
         self.ln(10)
 
-        logger.info("Printing client summaries.")
+        logger.debug("Printing client summaries.")
         client_summaries = details.get("client_summaries", [])
         if client_summaries:
             self.set_font(self.header_font.family, size=14, style="B")
@@ -631,6 +631,8 @@ class PDF(FPDF):
         """Print a cover page with client summary details."""
         self.add_page(format="A4")
 
+        logger.info("Adding client summary page.")
+
         fill_color = self.config.invoice.style_color
         currency = self.config.payment.currency
 
@@ -638,7 +640,7 @@ class PDF(FPDF):
             logger.debug(f"Details: {details}")
 
         # Header section
-        logger.info("Printing header section for client summary.")
+        logger.debug("Printing header section for client summary.")
 
         start_y = self.get_y()
 
@@ -688,7 +690,7 @@ class PDF(FPDF):
 
         self.ln(10)
 
-        logger.info("Printing key figures section.")
+        logger.debug("Printing key figures section.")
 
         self.start_section("Key Figures", level=toc_level)
 
@@ -717,7 +719,7 @@ class PDF(FPDF):
 
         transactions = details.get("transactions", [])
         if transactions:
-            logger.info("Printing transactions section.")
+            logger.debug("Printing transactions section.")
             self.set_font(self.header_font.family, size=14, style="B")
             if self.will_page_break(50):
                 self.add_page(same=True)
@@ -779,7 +781,7 @@ class PDF(FPDF):
         create_toc_entry: bool = False,
     ) -> None:
         """Generate an invoice PDF using the provided configuration."""
-        logger.info("Generating invoice with the provided configuration.")
+        logger.debug("Generating invoice with the provided configuration.")
 
         config = self.config
 
@@ -920,7 +922,7 @@ class PDF(FPDF):
         create_toc_entry: bool = False,
     ) -> None:
         """Generate a receipt PDF using the provided configuration."""
-        logger.info("Generating receipt with the provided configuration.")
+        logger.debug("Generating receipt with the provided configuration.")
 
         config = self.config
         currency = config.payment.currency

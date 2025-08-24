@@ -1,7 +1,7 @@
 """Run the Bulkinvoicer application with command line interface."""
 
 import sys
-from bulkinvoicer.driver import main as bulkinvoicer_main
+from .generate import main as bulkinvoicer_main
 import logging
 import pathlib
 import logging.config
@@ -23,21 +23,21 @@ def main() -> None:
 
     if expected_logging_conf_path.exists():
         logging.config.fileConfig(expected_logging_conf_path)
-        logger.info("Logging configuration loaded from logging.conf")
+        logger.debug("Logging configuration loaded from logging.conf")
     elif bundled_logging_conf_path.exists() and not debug:
         logging.config.fileConfig(bundled_logging_conf_path)
-        logger.info("Logging configuration loaded from bundled logging.conf")
+        logger.debug("Logging configuration loaded from bundled logging.conf")
     elif bundled_debug_conf_path.exists() and debug:
         logging.config.fileConfig(bundled_debug_conf_path)
-        logger.info("Logging configuration loaded from bundled logging-debug.conf")
+        logger.debug("Logging configuration loaded from bundled logging-debug.conf")
     elif debug:
         logging.basicConfig(level=logging.DEBUG)
-        logger.info(
+        logger.debug(
             "No logging configuration found, using basicConfig with DEBUG level"
         )
     else:
         logging.basicConfig(level=logging.WARNING)
-        logger.info(
+        logger.debug(
             "No logging configuration found, using basicConfig with WARNING level"
         )
 
@@ -46,9 +46,9 @@ def main() -> None:
     for arg in sys.argv:
         if arg.endswith(".toml"):
             config_file = arg
-            logger.info(f"Overriding config file path: {config_file}")
+            logger.debug(f"Overriding config file path: {config_file}")
             break
-    logger.info(f"Using config file: {config_file}")
+    logger.debug(f"Using config file: {config_file}")
 
     logger.info("Starting Bulkinvoicer...")
     try:
