@@ -86,6 +86,9 @@ convention = "google"
 [tool.ruff.format]
 docstring-code-format = true
 
+[tool.pytest.ini_options]
+addopts = "-q"
+
 [tool.coverage.report]
 # Regexes for lines to exclude from consideration
 exclude_also = [

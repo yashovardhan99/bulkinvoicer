@@ -175,5 +175,4 @@ cython_debug/
 
 # User-specific stuff
 config.toml
-output/*
-!output/samples/
+.vscode
