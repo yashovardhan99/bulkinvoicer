@@ -1,7 +1,7 @@
 """Run the Bulkinvoicer application with command line interface."""
 
 import sys
-from bulkinvoicer.driver import main as bulkinvoicer_main
+from .generate import main as bulkinvoicer_main
 import logging
 import pathlib
 import logging.config

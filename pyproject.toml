@@ -54,7 +54,7 @@ funding = "https://github.com/yashovardhan99/bulkinvoicer"
 releasenotes = "https://github.com/yashovardhan99/bulkinvoicer/releases"
 
 [project.scripts]
-invoicer = "bulkinvoicer.cli:main"
+invoicer = "bulkinvoicer.app.cli:main"
 
 [dependency-groups]
 testing = ["pytest >= 8.3.5, < 9.0.0", "coverage[toml] >= 7.8.0, < 8.0.0"]

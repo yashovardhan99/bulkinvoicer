@@ -9,8 +9,8 @@ from collections.abc import Iterable
 
 from fpdf import FPDF, FontFace
 
-from bulkinvoicer.config import Config
-from bulkinvoicer.utils import format_currency, get_qrcode_image
+from ..config.model import Config
+from ..utils import format_currency, get_qrcode_image
 
 logger = logging.getLogger(__name__)
 

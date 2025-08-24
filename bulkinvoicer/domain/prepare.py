@@ -1,7 +1,7 @@
 """Data preparation module."""
 
 import logging
-from bulkinvoicer.config import Config
+from ..config.model import Config
 
 import polars as pl
 

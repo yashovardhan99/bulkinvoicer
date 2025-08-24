@@ -1,7 +1,7 @@
 """I/O handling for BulkInvoicer."""
 
 import logging
-from bulkinvoicer.config import Config
+from ..config.model import Config
 
 import polars as pl
 
@@ -78,9 +78,3 @@ def read_excel(config: Config) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame
                 )
     logger.info("Data loaded from Excel files.")
     return (df_invoice_data, df_receipt_data, df_clients)
-
-
-def write_pdf(path: str, pdfBytes: bytearray):
-    """Write PDF bytes to a file."""
-    with open(path, "wb") as f:
-        f.write(pdfBytes)
