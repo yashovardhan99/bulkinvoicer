@@ -13,6 +13,8 @@ def build_client_summaries(
     df_invoices_close: pl.DataFrame,
     df_receipts_open: pl.DataFrame,
     df_receipts_close: pl.DataFrame,
+    *,
+    decimals: int = 2,
 ) -> pl.DataFrame:
     """Build a DataFrame summarizing client data."""
     # Group all invoices and receipts by client
@@ -23,7 +25,7 @@ def build_client_summaries(
             pl.count("number").alias("invoice_count_open"),
             pl.sum("total").alias("invoice_total_open"),
         )
-        .with_columns(pl.col("invoice_total_open").cast(pl.Decimal))
+        .with_columns(pl.col("invoice_total_open").cast(pl.Decimal(None, decimals)))
     )
 
     df_invoices_close_grouped = (
@@ -32,7 +34,7 @@ def build_client_summaries(
             pl.count("number").alias("invoice_count_close"),
             pl.sum("total").alias("invoice_total_close"),
         )
-        .with_columns(pl.col("invoice_total_close").cast(pl.Decimal))
+        .with_columns(pl.col("invoice_total_close").cast(pl.Decimal(None, decimals)))
     )
 
     df_receipts_open_grouped = (
@@ -41,7 +43,7 @@ def build_client_summaries(
             pl.count("number").alias("receipt_count_open"),
             pl.sum("amount").alias("receipt_total_open"),
         )
-        .with_columns(pl.col("receipt_total_open").cast(pl.Decimal))
+        .with_columns(pl.col("receipt_total_open").cast(pl.Decimal(None, decimals)))
     )
 
     df_receipts_close_grouped = (
@@ -50,7 +52,7 @@ def build_client_summaries(
             pl.count("number").alias("receipt_count_close"),
             pl.sum("amount").alias("receipt_total_close"),
         )
-        .with_columns(pl.col("receipt_total_close").cast(pl.Decimal))
+        .with_columns(pl.col("receipt_total_close").cast(pl.Decimal(None, decimals)))
     )
 
     # Combine all grouped data into a single DataFrame

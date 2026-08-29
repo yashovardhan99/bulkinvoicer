@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def match_payments_by_client(
-    df_invoices: pl.DataFrame, df_receipts: pl.DataFrame
+    df_invoices: pl.DataFrame, df_receipts: pl.DataFrame, *, decimals: int = 2
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Match payments to invoices on a per-client basis.
 
@@ -62,7 +62,7 @@ def match_payments_by_client(
         else pl.DataFrame(schema={"receipt": pl.Utf8, "invoices": pl.List})
     )
     df_unpaid_invoices = pl.from_dicts(
-        unpaid, schema={"number": pl.Utf8, "balance": pl.Decimal}
+        unpaid, schema={"number": pl.Utf8, "balance": pl.Decimal(None, decimals)}
     )
 
     # Join back to original frames

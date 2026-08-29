@@ -56,7 +56,9 @@ def generate(config: Config) -> None:
     df_receipts = prepare_receipts(config, df_receipt_data, df_clients)
 
     # Match payments per client
-    df_invoices, df_receipts = match_payments_by_client(df_invoices, df_receipts)
+    df_invoices, df_receipts = match_payments_by_client(
+        df_invoices, df_receipts, decimals=config.invoice.decimals
+    )
 
     logger.info("Starting PDF generation.")
 
@@ -128,6 +130,7 @@ def generate(config: Config) -> None:
                         df_invoices_close,
                         df_receipts_open,
                         df_receipts_close,
+                        decimals=config.invoice.decimals,
                     )
 
                     df_status_breakdown = build_status_breakdown(df_client_summaries)

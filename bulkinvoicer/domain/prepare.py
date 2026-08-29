@@ -32,14 +32,14 @@ def prepare_invoices(
             pl.coalesce(pl.max("due date"), pl.max("date"))
             .cast(pl.Date)
             .alias("due date"),
-            pl.first("client"),
+            pl.first("client").cast(pl.Utf8),
             pl.sum("amount").alias("subtotal"),
             (
-                pl.sum(discount_column).cast(pl.Decimal(None, decimals))
+                pl.col(discount_column).cast(pl.Decimal(None, decimals)).sum()
                 if discount_column
                 else pl.lit(0)
             ).alias("discount"),
-            pl.sum(*tax_columns).cast(pl.Decimal(None, decimals))
+            pl.col(*tax_columns).cast(pl.Decimal(None, decimals)).sum()
             if tax_columns
             else pl.lit(0).alias("tax-ignored"),
             pl.col("description", "unit", "qty", "amount"),
