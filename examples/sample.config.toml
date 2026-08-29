@@ -43,7 +43,7 @@ filepath = "examples/sample.xlsx"
 
 [output.combined]
 path = "examples/output/combined.pdf"
-type = "combined"            # combined, individual, or clients
+type = "combined"                     # combined, individual, or clients
 start-date = "2025-01-01"
 end-date = "2025-12-31"
 include-summary = true

@@ -1,0 +1,68 @@
+[[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "check-toml"
+groups = ["builtin"]
+[[repos.hooks]]
+id = "check-yaml"
+groups = ["builtin"]
+[[repos.hooks]]
+id = "end-of-file-fixer"
+groups = ["builtin"]
+[[repos.hooks]]
+id = "trailing-whitespace"
+groups = ["builtin"]
+[[repos.hooks]]
+id = "check-added-large-files"
+groups = ["builtin"]
+# [[repos.hooks]]
+# id     = "no-commit-to-branch" # Never use this in CI
+# groups = [ "local" ]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "uv-lock"
+name = "uv lock"
+entry = "uv lock --check"
+language = "system"
+pass_filenames = false
+groups = ["uv"]
+
+[[repos.hooks]]
+id = "uv-sync"
+name = "uv sync"
+entry = "uv sync --locked --all-extras --dev"
+language = "system"
+pass_filenames = false
+files = "uv.lock"
+groups = ["uv"]
+
+[[repos.hooks]]
+id = "ruff-check"
+name = "ruff check"
+entry = "uv run ruff check"
+language = "system"
+types_or = ["pyproject", "python"]
+pass_filenames = false
+groups = ["ruff"]
+
+[[repos.hooks]]
+id = "ruff-fmt"
+name = "ruff format"
+entry = "uv run ruff format"
+language = "system"
+types_or = ["pyproject", "python"]
+pass_filenames = false
+groups = ["ruff"]
+
+[[repos.hooks]]
+id = "ty"
+name = "ty check"
+entry = "uv run ty check"
+language = "system"
+pass_filenames = false
+types_or = ["python"]
+groups = ["ty"]
